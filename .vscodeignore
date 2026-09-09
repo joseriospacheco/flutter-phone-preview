@@ -1,0 +1,8 @@
+.vscode/**
+src/**
+.gitignore
+tsconfig.json
+node_modules/**
+**/*.map
+.git-codex-temp/**
+preview-diagnostic.png
