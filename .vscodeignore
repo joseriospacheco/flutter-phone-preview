@@ -6,3 +6,4 @@ node_modules/**
 **/*.map
 .git-codex-temp/**
 preview-diagnostic.png
+!images/icon.png

@@ -1,103 +1,90 @@
 # Flutter Phone Preview
 
-Extensión de VS Code que ejecuta tu app **Flutter Web** (`flutter run -d web-server`)
-y la muestra dentro de un panel con marco de teléfono (iPhone o Android),
-directamente en un panel lateral del editor.
+Preview your Flutter app inside VS Code with an iPhone, Android phone, or tablet frame. Switch devices, rotate the screen, adjust the zoom, and test text fields without leaving the editor.
 
-## Requisitos
+## Screenshots
 
-- Flutter SDK instalado y en el `PATH` (comando `flutter` disponible en la terminal).
-- Un proyecto Flutter abierto como carpeta de trabajo en VS Code.
-- Node.js 18+ para compilar la extensión.
+### Preview
 
-## Instalación y prueba local
+![Preview in dark theme](images/preview-dark.png)
 
-1. Descomprime este proyecto y ábrelo en VS Code.
-2. Instala dependencias y compila:
-   ```bash
-   npm install
-   npm run compile
-   ```
-3. Presiona `F5` (o "Ejecutar extensión" en el panel de depuración). Esto abre
-   una segunda ventana de VS Code ("Extension Development Host") con la
-   extensión ya cargada.
-4. En esa segunda ventana, abre tu proyecto Flutter (`File > Open Folder`).
-5. Abre la paleta de comandos (`Ctrl+Shift+P` / `Cmd+Shift+P`) y ejecuta:
-   **"Flutter: Iniciar vista previa en teléfono"**.
-6. Espera a que Flutter compile; el panel con el teléfono se abrirá solo,
-   mostrando tu app dentro del marco.
+![Preview in light theme](images/preview-light.png)
 
-## Comandos disponibles
+### Virtual keyboard
 
-| Comando | Descripción |
-|---|---|
-| `Flutter: Iniciar vista previa en teléfono` | Lanza `flutter run -d web-server` y abre el panel con el marco de teléfono. |
-| `Flutter: Hot reload (vista previa en teléfono)` | Envía `r` a Flutter y, al terminar de recompilar, refresca el panel automáticamente. |
-| `Flutter: Hot restart (vista previa en teléfono)` | Envía `R` (reinicio completo del estado) y refresca el panel al terminar. |
-| `Flutter: Detener vista previa en teléfono` | Detiene el proceso de Flutter y cierra el panel. |
+![Text virtual keyboard](images/keyboard-text.png)
 
-### Sobre el hot reload
+![Numeric virtual keyboard](images/keyboard-number.png)
 
-`flutter run -d web-server` no abre un navegador con depurador conectado, así
-que el "hot reload" incremental de Dart no puede aplicarse en vivo dentro del
-panel (esto es una limitación de Flutter Web, no de esta extensión — el
-propio Flutter avisa: *"requires the Dart Debug Chrome extension for
-debugging"*). Para evitar ese problema, la extensión:
+## Start the preview
 
-1. Envía el comando de reload/restart a Flutter.
-2. Detecta en la salida cuándo terminó de recompilar.
-3. Recarga automáticamente el `iframe` del panel (con un parámetro anti-caché),
-   mostrando siempre el código más reciente.
+1. Open your Flutter project folder in VS Code.
+2. Press **Ctrl + Shift + P** (or **Cmd + Shift + P** on macOS).
+3. Search for and select **Flutter: Start Phone Preview**.
+4. Wait for Flutter to compile your app. The first build may take a little longer.
+5. The preview opens in a side panel with your app inside the selected device frame.
 
-Además, con `flutterPhonePreview.autoReloadOnSave` (activado por defecto),
-cada vez que guardas un archivo `.dart` se dispara este mismo flujo
-automáticamente — funciona como un live-reload.
+## Requirements
 
-## Configuración
+- The **Flutter Phone Preview** extension must be installed.
+- Flutter must be installed and the `flutter` command must be available in your terminal.
+- Open a Flutter project that supports the web.
 
-En `settings.json` (o desde la configuración de VS Code):
+The preview runs the web version of your app. It does not replace testing on a physical device or emulator.
 
-```json
-{
-  "flutterPhonePreview.port": 5001,
-  "flutterPhonePreview.device": "iphone15",
-  "flutterPhonePreview.autoReloadOnSave": true
-}
-```
+## Preview controls
 
-- `flutterPhonePreview.port`: puerto usado por `flutter run -d web-server`.
-- `flutterPhonePreview.device`: modelo mostrado **al abrir** el panel. Valores:
-  `iphone15`, `iphone_se`, `pixel7`, `galaxy_s22`, `ipad_mini`.
-- `flutterPhonePreview.autoReloadOnSave`: si está activo, guardar cualquier
-  archivo `.dart` dispara un hot reload y refresca el panel automáticamente.
+- **Device:** choose an iPhone, Android phone, or iPad from the selector.
+- **Zoom:** zoom in, zoom out, or reset the preview size.
+- **Rotate:** switch between portrait and landscape orientation.
+- **Fit:** fit the device to the available panel space.
+- **Reload:** reload the app in the preview.
 
-## Controles dentro del panel
+## Virtual keyboard
 
-El panel incluye una barra superior con:
+Click a text field inside the device frame to open the virtual keyboard automatically. The keyboard adapts to the Flutter `TextInputType` used by the field.
 
-- **Selector de modelo**: cambia entre iPhone 15 Pro, iPhone SE, Google Pixel 7,
-  Samsung Galaxy S22 e iPad Mini, sin recargar la app.
-- **Zoom (−/+/Reset)**: acerca o aleja el marco del teléfono (30%–250%).
-  También puedes hacer zoom con `Ctrl` + rueda del mouse sobre el panel.
-- **Rotar**: cambia el marco entre orientación vertical y horizontal.
-- **Recargar**: refresca el `iframe` sin reiniciar el proceso de Flutter.
+- **Text:** letters, uppercase characters, spaces, and symbols.
+- **Numbers and decimals:** numeric keys and decimal separators.
+- **Phone:** numbers plus `+`, `*`, and `#`.
+- **Email and URL:** quick access to `@`, `.`, and `/`.
+- **Multiline:** supports line breaks.
 
-## Empaquetar como .vsix (para instalar permanentemente)
+Use **Backspace** to delete characters and **Done**, **Search**, or **Send** for the field action. Use the down arrow to hide the keyboard. The app has less vertical space while the keyboard is open.
 
-```bash
-npm install -g @vscode/vsce
-npm run compile
-vsce package
-```
+Read-only fields and fields configured with `TextInputType.none` do not open the virtual keyboard. Some less common Flutter input types may use the text layout because Flutter Web does not expose a distinct browser input mode for them.
 
-Esto genera un archivo `.vsix` que puedes instalar con:
-`Extensions > ... > Install from VSIX...` en VS Code.
+## Update the app while working
 
-## Notas
+By default, saving a `.dart` file requests a Flutter update and reloads the preview when recompilation finishes.
 
-- La primera compilación de Flutter puede tardar un poco; si el panel no se
-  abre solo, revisa el canal de salida **"Flutter Phone Preview"** para ver
-  el progreso, o espera — hay un respaldo de 15s que abre el panel de todas
-  formas.
-- El botón "↻ Recargar" en el panel simplemente refresca el `iframe` (útil si
-  el hot reload de Flutter no repinta visualmente por sí solo).
+You can also open the Command Palette with **Ctrl + Shift + P** and run:
+
+- **Flutter: Hot reload (phone preview)** to update the app.
+- **Flutter: Hot restart (phone preview)** to restart the app state completely.
+
+The update may reset the app state in the web preview.
+
+## Stop the preview
+
+Press **Ctrl + Shift + P** and select **Flutter: Stop Phone Preview**. This stops Flutter and closes the panel.
+
+## Settings
+
+Open VS Code Settings and search for **Flutter Phone Preview**. You can change:
+
+- **Port:** the port used to run the app. The default is `5001`.
+- **Device:** the device shown when the preview opens.
+- **Auto Reload On Save:** enable or disable reloads when `.dart` files are saved.
+
+## If the app does not appear
+
+- Wait for the first Flutter build to finish.
+- Open **View > Output** and select **Flutter Phone Preview** to see progress and errors.
+- Check that your project can run on the web.
+- If compilation has finished but the screen is blank, click **Reload** in the panel.
+- If the port is busy, change **Port** in Settings and start the preview again.
+
+## Continue improving
+
+Flutter Phone Preview is under active development. More devices, preview controls, and Flutter Web improvements will be added over time.

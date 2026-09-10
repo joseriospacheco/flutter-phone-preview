@@ -2,8 +2,13 @@
   "name": "flutter-phone-preview",
   "displayName": "Flutter Phone Preview",
   "description": "Ejecuta tu app Flutter Web dentro de VS Code con un marco de teléfono (iPhone/Android).",
-  "version": "0.1.2",
-  "publisher": "local-dev",
+  "version": "0.3.3",
+  "icon": "images/icon.png",
+  "publisher": "1108762718",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joseriospacheco/flutter-phone-preview.git"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },

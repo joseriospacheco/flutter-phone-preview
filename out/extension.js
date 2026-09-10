@@ -5,9 +5,12 @@ exports.deactivate = deactivate;
 const vscode = require("vscode");
 const http = require("http");
 const net = require("net");
+const previewProxy_1 = require("./previewProxy");
+const virtualKeyboard_1 = require("./virtualKeyboard");
 const child_process_1 = require("child_process");
 let flutterProcess;
 let panel;
+let previewProxy;
 let outputChannel;
 let saveListener;
 let pendingRebuild = false;
@@ -239,7 +242,10 @@ async function startFlutter(context) {
             }
             if (!opened) {
                 opened = true;
-                openPhonePanel(context, baseUrl, device);
+                openPhonePanel(context, baseUrl, device).catch((error) => {
+                    opened = false;
+                    vscode.window.showErrorMessage(`No se pudo abrir la vista previa: ${error.message}`);
+                });
             }
         });
     }
@@ -320,6 +326,8 @@ function clearFallbackTimer() {
     }
 }
 function stopFlutter() {
+    previewProxy?.dispose();
+    previewProxy = undefined;
     clearFallbackTimer();
     if (flutterProcess) {
         killFlutterProcess();
@@ -345,7 +353,15 @@ function refreshPanelFrame() {
         panel.webview.postMessage({ command: 'forceReload' });
     }
 }
-function openPhonePanel(context, url, device) {
+async function openPhonePanel(context, url, device) {
+    const proxy = await (0, previewProxy_1.startPreviewProxy)(url, device);
+    if (!flutterProcess) {
+        proxy.dispose();
+        return;
+    }
+    previewProxy?.dispose();
+    previewProxy = proxy;
+    url = proxy.url;
     panel = vscode.window.createWebviewPanel('flutterPhonePreview', 'Flutter — Vista de Teléfono', vscode.ViewColumn.Beside, {
         enableScripts: true,
         retainContextWhenHidden: true
@@ -361,153 +377,213 @@ function openPhonePanel(context, url, device) {
             outputChannel.appendLine('El iframe no terminó de cargar en 60 segundos. No se reinicia para no interrumpir Flutter.');
         }
     }, null, context.subscriptions);
-    panel.webview.html = getWebviewHtml(url, device);
+    panel.webview.html = getWebviewHtml(url, device, proxy.token);
     panel.onDidDispose(() => {
         readyListener.dispose();
         panel = undefined;
         stopFlutter();
     }, null, context.subscriptions);
 }
-function getWebviewHtml(url, device) {
+function getWebviewHtml(url, device, keyboardToken = '') {
     return `<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
+  ${virtualKeyboard_1.keyboardStyles}
+  * { box-sizing: border-box; }
   html, body {
     height: 100%;
     margin: 0;
-    background: var(--vscode-editor-background, #1e1e1e);
-    font-family: sans-serif;
+    background: var(--vscode-editor-background, #181b22);
+    color: var(--vscode-foreground, #dbe2ec);
+    font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+    font-size: 12px;
     overflow: hidden;
   }
-  .toolbar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    z-index: 10;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 8px;
-    box-sizing: border-box;
-    scrollbar-width: thin;
-    background: var(--vscode-editor-background, #1e1e1e);
+  body {
+    --line: var(--vscode-panel-border, #343b49);
+    --muted: var(--vscode-descriptionForeground, #a1adbd);
+    --surface: var(--vscode-editorWidget-background, #20252f);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
   }
-  .toolbar::-webkit-scrollbar {
-    height: 4px;
+  button, select { font: inherit; }
+  button:focus-visible, select:focus-visible {
+    outline: 2px solid var(--vscode-focusBorder, #58c4f4);
+    outline-offset: 3px;
   }
-  .toolbar::-webkit-scrollbar-thumb {
-    background: var(--vscode-scrollbarSlider-background, #555);
-    border-radius: 2px;
-  }
-  .toolbar select,
-  .toolbar button {
-    background: var(--vscode-button-background, #0e639c);
-    color: var(--vscode-button-foreground, #ffffff);
-    border: none;
-    padding: 6px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-    white-space: nowrap;
+  .icon {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
     flex-shrink: 0;
   }
+  .toolbar {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    z-index: 10;
+    flex-wrap: wrap;
+    padding: 8px 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .device-picker { flex: 1 1 180px; min-width: 0; }
+  .field-label {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+  }
+  .select-wrap { position: relative; }
+  .select-wrap > .icon {
+    position: absolute;
+    right: 10px;
+    top: 6px;
+    pointer-events: none;
+    color: var(--muted);
+  }
   .toolbar select {
-    background: var(--vscode-dropdown-background, #3c3c3c);
-    color: var(--vscode-dropdown-foreground, #ffffff);
-    flex-shrink: 1;
+    appearance: none;
+    width: 100%;
+    height: 28px;
     min-width: 0;
-    max-width: 160px;
+    padding: 0 32px 0 11px;
+    border: 1px solid var(--vscode-dropdown-border, var(--line));
+    border-radius: 7px;
+    background: var(--vscode-dropdown-background, #20252f);
+    color: var(--vscode-dropdown-foreground, #dbe2ec);
     text-overflow: ellipsis;
-    overflow: hidden;
+    cursor: pointer;
+  }
+  .view-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .toolbar button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--surface);
+    color: var(--vscode-foreground, #dbe2ec);
+    cursor: pointer;
+    white-space: nowrap;
   }
   .toolbar button:hover {
-    background: var(--vscode-button-hoverBackground, #1177bb);
+    background: var(--vscode-toolbar-hoverBackground, #303949);
+  }
+  .toolbar button:active { filter: brightness(0.95); }
+  .toolbar button[aria-pressed="true"] {
+    color: var(--vscode-inputOption-activeForeground, #ffffff);
+    background: var(--vscode-inputOption-activeBackground, #264b69);
+    border-color: var(--vscode-inputOption-activeBorder, #58c4f4);
+  }
+  .toolbar .primary {
+    background: var(--vscode-button-background, #087ca7);
+    color: var(--vscode-button-foreground, #ffffff);
+    border-color: transparent;
+  }
+  .toolbar .primary:hover {
+    background: var(--vscode-button-hoverBackground, #0990bc);
   }
   .zoom-group {
     display: flex;
     align-items: center;
-    gap: 4px;
-    background: var(--vscode-editorWidget-background, #252526);
-    padding: 2px 6px;
-    border-radius: 4px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 7px;
     flex-shrink: 0;
   }
-  .zoom-group button {
-    padding: 4px 10px;
-    font-weight: bold;
+  .toolbar .zoom-group button {
+    height: 26px;
+    padding: 0 7px;
+    border: 0;
+    background: transparent;
   }
+  .toolbar .zoom-group button:hover { background: var(--vscode-toolbar-hoverBackground, #303949); }
   #zoomLabel {
-    color: var(--vscode-foreground, #ccc);
-    font-size: 12px;
-    min-width: 42px;
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    min-width: 32px;
     text-align: center;
-    flex-shrink: 0;
   }
   .stage {
-    height: 100vh;
-    width: 100%;
     display: flex;
-    padding: 46px 4px 4px;
-    box-sizing: border-box;
+    min-width: 0;
+    min-height: 0;
+    padding: 28px;
     overflow: auto;
+    background-color: var(--vscode-sideBar-background, #14171d);
+    background-image: radial-gradient(circle, var(--vscode-editorIndentGuide-background1, #303642) 0.7px, transparent 0.9px);
+    background-size: 18px 18px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--vscode-scrollbarSlider-background, #444c59) transparent;
   }
-  .stage .phone {
+  .phone-viewport {
+    position: relative;
     margin: auto;
+    flex: 0 0 auto;
   }
-  @media (max-width: 480px) {
-    .toolbar {
-      gap: 4px;
-      padding: 6px;
-    }
-    .toolbar select,
-    .toolbar button {
-      font-size: 11px;
-      padding: 5px 8px;
-    }
-    .toolbar select {
-      max-width: 120px;
-    }
-    .zoom-group {
-      gap: 2px;
-      padding: 2px 4px;
-    }
-    .zoom-group button {
-      padding: 3px 8px;
-    }
-    #zoomLabel {
-      min-width: 34px;
-      font-size: 11px;
-    }
-    .btn-text {
-      display: none;
-    }
-    .stage {
-      padding-top: 44px;
-    }
+  .preview-footer {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    padding: 10px 18px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
   }
-  @media (max-width: 340px) {
-    #zoomResetBtn {
-      display: none;
-    }
-    .toolbar select {
-      max-width: 96px;
-    }
+  .preview-status { display: inline-flex; align-items: center; gap: 6px; }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .preview-status[data-state="loading"] { color: var(--vscode-textLink-foreground, #58c4f4); }
+  .preview-status[data-state="slow"] { color: var(--vscode-editorWarning-foreground, #e9b35e); }
+  .zoom-hint { margin-left: auto; }
+  @media (max-width: 620px) {
+    .device-picker { flex-basis: 100%; }
+    .view-actions { width: 100%; }
+    .toolbar .primary { margin-left: auto; }
+    .zoom-hint { display: none; }
+  }
+  @media (max-width: 400px) {
+    .toolbar { padding: 8px 12px; gap: 6px; }
+    .btn-text { display: none; }
+    .stage { padding: 18px; }
+    .preview-footer { padding: 9px 12px; }
+    .toolbar button { padding: 0 8px; }
+  }
+  @media (max-height: 480px) {
+    .toolbar { padding-top: 8px; padding-bottom: 8px; }
+    .field-label { display: none; }
+    .stage { padding: 14px; }
+  }
+  body.vscode-high-contrast .stage, body.vscode-high-contrast-light .stage { background-image: none; }
+  body.vscode-high-contrast button, body.vscode-high-contrast-light button {
+    border-color: var(--vscode-contrastBorder, currentColor);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation: none !important; }
   }
   .phone {
     background: #111111;
     padding: 10px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-    position: relative;
+    box-shadow: 0 0 0 1px #50545c, 0 2px 4px rgba(0, 0, 0, 0.3), 0 18px 40px -12px rgba(0, 0, 0, 0.5);
+    position: absolute;
+    top: 0;
+    left: 0;
     box-sizing: border-box;
-    transition: width 0.15s ease, height 0.15s ease, border-radius 0.15s ease, transform 0.1s ease;
-    flex-shrink: 0;
+    transform-origin: top left;
   }
   .notch {
     position: absolute;
@@ -570,20 +646,21 @@ function getWebviewHtml(url, device) {
     align-items: center;
     justify-content: center;
     gap: 12px;
-    background: #ffffff;
-    color: #555555;
+    background: var(--vscode-editor-background, #181b22);
+    color: var(--vscode-foreground, #dbe2ec);
     font-size: 13px;
     z-index: 5;
   }
+  .loading-detail { color: var(--muted); font-size: 11px; }
   .loading.hidden {
     display: none;
   }
   .spinner {
-    width: 28px;
-    height: 28px;
+    width: 30px;
+    height: 30px;
     border-radius: 50%;
-    border: 3px solid #dddddd;
-    border-top-color: #0e639c;
+    border: 2px solid var(--line);
+    border-top-color: var(--vscode-textLink-foreground, #58c4f4);
     animation: spin 0.9s linear infinite;
   }
   @keyframes spin {
@@ -662,26 +739,35 @@ function getWebviewHtml(url, device) {
 </style>
 </head>
 <body>
-  <div class="toolbar">
-    <select id="deviceSelect" title="Modelo de teléfono"></select>
-    <div class="zoom-group">
-      <button id="zoomOut" title="Alejar">−</button>
-      <span id="zoomLabel">100%</span>
-      <button id="zoomIn" title="Acercar">+</button>
-      <button id="zoomResetBtn" title="Restablecer zoom">Reset</button>
+  <section class="toolbar" aria-label="Controles de la vista previa">
+    <div class="device-picker">
+      <label class="field-label" for="deviceSelect">Dispositivo</label>
+      <div class="select-wrap">
+        <select id="deviceSelect" title="Modelo de teléfono"></select>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+      </div>
     </div>
-    <button id="rotateBtn" title="Rotar (vertical / horizontal)">⇄ <span class="btn-text">Rotar</span></button>
-    <button id="reloadBtn" title="Recargar">↻ <span class="btn-text">Recargar</span></button>
-    <button id="fitBtn" title="Ajustar a la pantalla">⤢ <span class="btn-text">Ajustar</span></button>
-  </div>
-  <div class="stage" id="stage">
+    <div class="view-actions">
+      <div class="zoom-group" role="group" aria-label="Zoom">
+        <button id="zoomOut" title="Alejar" aria-label="Alejar"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+        <button id="zoomResetBtn" title="Restablecer zoom" aria-label="Restablecer zoom"><span id="zoomLabel">100%</span></button>
+        <button id="zoomIn" title="Acercar" aria-label="Acercar"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></button>
+      </div>
+      <button id="fitBtn" title="Ajustar a la pantalla" aria-label="Ajustar a la pantalla"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg><span class="btn-text">Ajustar</span></button>
+      <button id="rotateBtn" title="Rotar (vertical / horizontal)" aria-label="Rotar pantalla" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="6" width="8" height="12" rx="2" transform="rotate(30 12 12)"/><path d="M4 9a9 9 0 0 1 14-5l2 2m0-4v4h-4M20 15a9 9 0 0 1-14 5l-2-2m0 4v-4h4"/></svg><span class="btn-text">Rotar</span></button>
+      <button id="reloadBtn" class="primary" title="Recargar app" aria-label="Recargar app"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"/></svg><span>Recargar</span></button>
+    </div>
+  </section>
+  <main class="stage" id="stage" aria-label="Vista previa de la app">
+    <div class="phone-viewport" id="phoneViewport">
     <div class="phone" id="phone">
       <div class="notch" id="notchEl"></div>
       <div class="punch" id="punchEl"></div>
       <div class="homebtn" id="homeBtnEl"></div>
       <div class="screen">
-        <iframe id="preview" data-url="${url}"></iframe>
-        <div class="statusbar" id="statusBar">
+        <iframe id="preview" title="Aplicación Flutter" data-url="${url}"></iframe>
+        ${virtualKeyboard_1.keyboardMarkup}
+        <div class="statusbar" id="statusBar" aria-hidden="true">
           <span id="clockEl">--:--</span>
           <span class="status-icons">
             <span class="sig"><i></i><i></i><i></i><i></i></span>
@@ -689,10 +775,16 @@ function getWebviewHtml(url, device) {
             <span class="batt"><span class="batt-fill" id="battFill"></span></span>
           </span>
         </div>
-        <div class="loading" id="loadingEl"><div class="spinner"></div><span id="loadingText">Cargando app…</span></div>
+        <div class="loading" id="loadingEl"><div class="spinner" aria-hidden="true"></div><span id="loadingText">Cargando app…</span><span class="loading-detail">Preparando tu vista previa</span></div>
       </div>
     </div>
-  </div>
+    </div>
+  </main>
+  <footer class="preview-footer">
+    <span class="preview-status" id="previewStatus" data-state="loading" role="status"><span class="status-dot" aria-hidden="true"></span><span id="statusText">Preparando vista</span></span>
+    <span id="deviceDetails"></span>
+    <span class="zoom-hint">Ctrl + rueda para zoom</span>
+  </footer>
   <script>
     const vscode = acquireVsCodeApi();
     const DEVICES = [
@@ -718,6 +810,7 @@ function getWebviewHtml(url, device) {
     let rotated = false;
 
     const phone = document.getElementById('phone');
+    const phoneViewport = document.getElementById('phoneViewport');
     const stage = document.getElementById('stage');
     const notchEl = document.getElementById('notchEl');
     const punchEl = document.getElementById('punchEl');
@@ -738,8 +831,8 @@ function getWebviewHtml(url, device) {
       const w = rotated ? currentDevice.height : currentDevice.width;
       const h = rotated ? currentDevice.width : currentDevice.height;
 
-      phone.style.width = (w + 28) + 'px';
-      phone.style.height = (h + 28) + 'px';
+      phone.style.width = (w + 20) + 'px';
+      phone.style.height = (h + 20) + 'px';
       phone.style.borderRadius = currentDevice.radius + 'px';
       phone.style.background = currentDevice.frame;
       phone.querySelector('.screen').style.borderRadius = Math.max(currentDevice.radius - 16, 8) + 'px';
@@ -757,6 +850,10 @@ function getWebviewHtml(url, device) {
       const contentTop = (!rotated && currentDevice.notchType === 'island') ? 26 : currentDevice.inset;
       preview.style.top = contentTop + 'px';
       preview.style.height = 'calc(100% - ' + contentTop + 'px)';
+      layoutKeyboard();
+
+      document.getElementById('deviceDetails').textContent = w + ' × ' + h + ' · ' + (rotated ? 'Horizontal' : 'Vertical');
+      document.getElementById('rotateBtn').setAttribute('aria-pressed', String(rotated));
 
       refit();
     }
@@ -773,8 +870,9 @@ function getWebviewHtml(url, device) {
 
     function computeFit() {
       const s = phoneOuterSize();
-      const availW = stage.clientWidth - 16;
-      const availH = stage.clientHeight - 16;
+      const stageStyle = getComputedStyle(stage);
+      const availW = stage.clientWidth - parseFloat(stageStyle.paddingLeft) - parseFloat(stageStyle.paddingRight);
+      const availH = stage.clientHeight - parseFloat(stageStyle.paddingTop) - parseFloat(stageStyle.paddingBottom);
       if (availW <= 0 || availH <= 0) {
         return 1;
       }
@@ -783,6 +881,9 @@ function getWebviewHtml(url, device) {
 
     function applyZoom() {
       const scale = Math.min(Math.max(fitZoom * zoom, 0.1), 3);
+      const size = phoneOuterSize();
+      phoneViewport.style.width = (size.w * scale) + 'px';
+      phoneViewport.style.height = (size.h * scale) + 'px';
       phone.style.transform = 'scale(' + scale + ')';
       zoomLabel.textContent = Math.round(scale * 100) + '%';
     }
@@ -824,23 +925,32 @@ function getWebviewHtml(url, device) {
     let navigationId = 0;
     let navigationStarted = false;
 
+    function setPreviewStatus(text, state) {
+      document.getElementById('statusText').textContent = text;
+      document.getElementById('previewStatus').dataset.state = state;
+    }
+
     function hideLoading() {
       loadingEl.classList.add('hidden');
     }
 
     function loadApp(url = baseUrl) {
+      resetKeyboard();
       clearTimeout(loadTimer);
       navigationStarted = true;
       navigationId++;
+      setPreviewStatus('Cargando vista', 'loading');
       loadingText.textContent = 'Cargando app…';
       loadingEl.classList.remove('hidden');
       const target = new URL(url);
+      target.searchParams.set('_previewDevice', currentDevice.id);
       target.searchParams.set('_preview', String(Date.now()) + '-' + navigationId);
       preview.src = target.href;
       // No reiniciar Flutter mientras compila o inicializa su motor.
       // El overlay tampoco debe ocultar indefinidamente una app ya dibujada.
       loadTimer = setTimeout(() => {
         hideLoading();
+        setPreviewStatus('La carga está tardando', 'slow');
         vscode.postMessage({ command: 'previewTimeout' });
       }, 60000);
     }
@@ -857,6 +967,7 @@ function getWebviewHtml(url, device) {
       // load solo confirma el documento: Flutter puede seguir arrancando.
       // Quitamos nuestra cubierta y dejamos que el motor termine sin recargas.
       hideLoading();
+      setPreviewStatus('Vista abierta', 'ready');
     });
 
     // Barra de estado: hora en vivo + iconos de señal, wifi y batería.
@@ -886,6 +997,7 @@ function getWebviewHtml(url, device) {
     window.addEventListener('message', (event) => {
       const msg = event.data;
       if (!msg) { return; }
+      if (event.source === preview.contentWindow) { return; }
       if (msg.command === 'loadApp') {
         loadApp(msg.url);
       } else if (msg.command === 'forceReload') {
@@ -915,6 +1027,7 @@ function getWebviewHtml(url, device) {
       });
     }
 
+    ${(0, virtualKeyboard_1.getVirtualKeyboardScript)(keyboardToken)}
     applyDevice();
 
     // Avisa a la extensión que el JS del webview está listo y puede enviar
@@ -925,6 +1038,8 @@ function getWebviewHtml(url, device) {
 </html>`;
 }
 function deactivate() {
+    previewProxy?.dispose();
+    previewProxy = undefined;
     clearFallbackTimer();
     disposeSaveListener();
     killProcessTreeSync();
