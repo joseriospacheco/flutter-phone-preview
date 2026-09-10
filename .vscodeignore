@@ -7,3 +7,4 @@ node_modules/**
 .git-codex-temp/**
 preview-diagnostic.png
 !images/icon.png
+tests/**

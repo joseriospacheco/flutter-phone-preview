@@ -202,6 +202,17 @@ async function startFlutter(context) {
     const port = config.get('port', 5001);
     const device = config.get('device', 'iphone15');
     const autoReloadOnSave = config.get('autoReloadOnSave', true);
+    // Activa los Preview Editors antes de crear el WebviewPanel cuando el
+    // perfil de VS Code los tiene desactivados.
+    const editorConfig = vscode.workspace.getConfiguration('workbench.editor');
+    if (editorConfig.get('enablePreview') === false) {
+        try {
+            await editorConfig.update('enablePreview', true, vscode.ConfigurationTarget.Global);
+        }
+        catch {
+            outputChannel.appendLine('No se pudo activar workbench.editor.enablePreview automáticamente.');
+        }
+    }
     if (!(await ensurePortFree(port))) {
         return;
     }
@@ -354,7 +365,11 @@ function refreshPanelFrame() {
     }
 }
 async function openPhonePanel(context, url, device) {
-    const proxy = await (0, previewProxy_1.startPreviewProxy)(url, device);
+    const enableRestProxy = vscode.workspace.getConfiguration('flutterPhonePreview').get('enableRestProxy', true);
+    const proxy = await (0, previewProxy_1.startPreviewProxy)(url, device, { enableRestProxy });
+    outputChannel.appendLine(enableRestProxy
+        ? 'Proxy REST activo: las solicitudes HTTP/HTTPS de la app se envían desde la extensión.'
+        : 'Proxy REST desactivado: las solicitudes usan las reglas CORS del navegador.');
     if (!flutterProcess) {
         proxy.dispose();
         return;
@@ -362,7 +377,7 @@ async function openPhonePanel(context, url, device) {
     previewProxy?.dispose();
     previewProxy = proxy;
     url = proxy.url;
-    panel = vscode.window.createWebviewPanel('flutterPhonePreview', 'Flutter — Vista de Teléfono', vscode.ViewColumn.Beside, {
+    panel = vscode.window.createWebviewPanel('flutterPhonePreview', 'Flutter — Vista de Teléfono', { viewColumn: vscode.ViewColumn.Two, preserveFocus: true }, {
         enableScripts: true,
         retainContextWhenHidden: true
     });
@@ -376,8 +391,24 @@ async function openPhonePanel(context, url, device) {
         else if (msg.command === 'previewTimeout') {
             outputChannel.appendLine('El iframe no terminó de cargar en 60 segundos. No se reinicia para no interrumpir Flutter.');
         }
+        else if (msg.command === 'previewRuntimeError' && msg.token === proxy.token) {
+            const kind = typeof msg.kind === 'string' ? msg.kind : 'runtime';
+            const detail = typeof msg.message === 'string' ? msg.message : 'Error desconocido';
+            outputChannel.appendLine(`[App ${kind}] ${detail}`);
+            if (typeof msg.stack === 'string' && msg.stack.trim()) {
+                outputChannel.appendLine(msg.stack);
+            }
+        }
+        else if (msg.command === 'webviewRuntimeError') {
+            const detail = typeof msg.message === 'string' ? msg.message : 'Error desconocido en el panel';
+            outputChannel.appendLine(`[Panel] ${detail}`);
+            if (typeof msg.stack === 'string' && msg.stack.trim()) {
+                outputChannel.appendLine(msg.stack);
+            }
+        }
     }, null, context.subscriptions);
     panel.webview.html = getWebviewHtml(url, device, proxy.token);
+    panel.reveal(vscode.ViewColumn.Two, true);
     panel.onDidDispose(() => {
         readyListener.dispose();
         panel = undefined;
@@ -549,6 +580,7 @@ function getWebviewHtml(url, device, keyboardToken = '') {
   .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
   .preview-status[data-state="loading"] { color: var(--vscode-textLink-foreground, #58c4f4); }
   .preview-status[data-state="slow"] { color: var(--vscode-editorWarning-foreground, #e9b35e); }
+  .preview-status[data-state="error"] { color: var(--vscode-errorForeground, #f48771); }
   .zoom-hint { margin-left: auto; }
   @media (max-width: 620px) {
     .device-picker { flex-basis: 100%; }
@@ -654,6 +686,54 @@ function getWebviewHtml(url, device, keyboardToken = '') {
   .loading-detail { color: var(--muted); font-size: 11px; }
   .loading.hidden {
     display: none;
+  }
+  .preview-error {
+    position: absolute;
+    inset: 0;
+    z-index: 7;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 12px;
+    padding: 24px;
+    background: var(--vscode-editor-background, #181b22);
+    color: var(--vscode-foreground, #dbe2ec);
+  }
+  .preview-error[hidden] { display: none; }
+  .preview-error-title {
+    color: var(--vscode-errorForeground, #f48771);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .preview-error-text {
+    max-height: 45%;
+    margin: 0;
+    padding: 10px;
+    overflow: auto;
+    border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
+    border-radius: 6px;
+    background: var(--vscode-textCodeBlock-background, #252526);
+    color: var(--vscode-foreground, #dbe2ec);
+    font: 11px/1.45 var(--vscode-editor-font-family, Consolas, monospace);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .preview-error-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .preview-error-actions button {
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--vscode-button-background, #087ca7);
+    color: var(--vscode-button-foreground, #ffffff);
+    cursor: pointer;
+  }
+  .preview-error-actions button:hover {
+    background: var(--vscode-button-hoverBackground, #0990bc);
   }
   .spinner {
     width: 30px;
@@ -776,6 +856,13 @@ function getWebviewHtml(url, device, keyboardToken = '') {
           </span>
         </div>
         <div class="loading" id="loadingEl"><div class="spinner" aria-hidden="true"></div><span id="loadingText">Cargando app…</span><span class="loading-detail">Preparando tu vista previa</span></div>
+        <div class="preview-error" id="previewError" role="alert" hidden>
+          <div class="preview-error-title">La aplicación encontró un error</div>
+          <pre class="preview-error-text" id="previewErrorText">No se pudo obtener más información.</pre>
+          <div class="preview-error-actions">
+            <button type="button" id="previewErrorReload">Recargar app</button>
+          </div>
+        </div>
       </div>
     </div>
     </div>
@@ -787,6 +874,21 @@ function getWebviewHtml(url, device, keyboardToken = '') {
   </footer>
   <script>
     const vscode = acquireVsCodeApi();
+    window.addEventListener('error', event => {
+      vscode.postMessage({
+        command: 'webviewRuntimeError',
+        message: event.message || 'Error desconocido en el panel',
+        stack: event.error && event.error.stack ? event.error.stack : ''
+      });
+    });
+    window.addEventListener('unhandledrejection', event => {
+      const reason = event.reason;
+      vscode.postMessage({
+        command: 'webviewRuntimeError',
+        message: reason && reason.message ? reason.message : String(reason || 'Promesa rechazada'),
+        stack: reason && reason.stack ? reason.stack : ''
+      });
+    });
     const DEVICES = [
       { id: 'iphone15', name: 'iPhone 15 Pro', width: 393, height: 852, radius: 52, notchType: 'island', notchWidth: 120, inset: 44, frame: '#111111' },
       { id: 'iphone_16_pro_max', name: 'iPhone 16 Pro Max', width: 440, height: 956, radius: 56, notchType: 'island', notchWidth: 125, inset: 46, frame: '#111111' },
@@ -920,6 +1022,8 @@ function getWebviewHtml(url, device, keyboardToken = '') {
     });
     const loadingEl = document.getElementById('loadingEl');
     const loadingText = document.getElementById('loadingText');
+    const previewError = document.getElementById('previewError');
+    const previewErrorText = document.getElementById('previewErrorText');
     const baseUrl = preview.dataset.url;
     let loadTimer;
     let navigationId = 0;
@@ -930,12 +1034,25 @@ function getWebviewHtml(url, device, keyboardToken = '') {
       document.getElementById('previewStatus').dataset.state = state;
     }
 
+    function hidePreviewError() {
+      previewError.hidden = true;
+    }
+
+    function showPreviewError(kind, message, stack) {
+      const detail = [message, stack].filter(value => typeof value === 'string' && value.trim()).join('\\n\\n');
+      previewErrorText.textContent = detail || 'No se pudo obtener más información.';
+      previewError.hidden = false;
+      hideLoading();
+      setPreviewStatus('Error en la app', 'error');
+    }
+
     function hideLoading() {
       loadingEl.classList.add('hidden');
     }
 
     function loadApp(url = baseUrl) {
       resetKeyboard();
+      hidePreviewError();
       clearTimeout(loadTimer);
       navigationStarted = true;
       navigationId++;
@@ -960,6 +1077,7 @@ function getWebviewHtml(url, device, keyboardToken = '') {
     }
 
     document.getElementById('reloadBtn').addEventListener('click', () => loadApp());
+    document.getElementById('previewErrorReload').addEventListener('click', () => loadApp());
 
     preview.addEventListener('load', () => {
       if (!navigationStarted) return;
@@ -968,6 +1086,9 @@ function getWebviewHtml(url, device, keyboardToken = '') {
       // Quitamos nuestra cubierta y dejamos que el motor termine sin recargas.
       hideLoading();
       setPreviewStatus('Vista abierta', 'ready');
+    });
+    preview.addEventListener('error', () => {
+      showPreviewError('iframe', 'No se pudo cargar el documento de la aplicación.');
     });
 
     // Barra de estado: hora en vivo + iconos de señal, wifi y batería.
@@ -996,13 +1117,16 @@ function getWebviewHtml(url, device, keyboardToken = '') {
 
     window.addEventListener('message', (event) => {
       const msg = event.data;
-      if (!msg) { return; }
-      if (event.source === preview.contentWindow) { return; }
-      if (msg.command === 'loadApp') {
-        loadApp(msg.url);
-      } else if (msg.command === 'forceReload') {
-        forceReloadFrame();
+      if (!msg) return;
+      if (event.source === preview.contentWindow) {
+        if (msg.source === 'phone-preview-runtime-error' && msg.token === ${JSON.stringify(keyboardToken)}) {
+          showPreviewError(msg.kind || 'runtime', msg.message, msg.stack);
+          vscode.postMessage({command: 'previewRuntimeError', token: msg.token, kind: msg.kind || 'runtime', message: msg.message || 'Error desconocido', stack: msg.stack || ''});
+        }
+        return;
       }
+      if (msg.command === 'loadApp') loadApp(msg.url);
+      else if (msg.command === 'forceReload') forceReloadFrame();
     });
 
     // Zoom con Ctrl + rueda del mouse sobre el escenario

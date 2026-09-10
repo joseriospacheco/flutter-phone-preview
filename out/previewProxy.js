@@ -6,11 +6,15 @@ const net = require("net");
 const crypto_1 = require("crypto");
 const zlib_1 = require("zlib");
 const keyboardBridge_1 = require("./keyboardBridge");
-// Inject only the local preview response. The user's Flutter files are untouched.
-async function startPreviewProxy(upstreamUrl, device) {
+const restBridge_1 = require("./restBridge");
+const runtimeBridge_1 = require("./runtimeBridge");
+const restProxy_1 = require("./restProxy");
+async function startPreviewProxy(upstreamUrl, device, options = {}) {
     const upstream = new URL(upstreamUrl);
     const token = (0, crypto_1.randomBytes)(24).toString('hex');
     const bridgePath = `/__phone_preview_${token}.js`;
+    const restPath = '/__phone_preview_rest_' + token;
+    const enableRestProxy = options.enableRestProxy !== false;
     const sockets = new Set();
     let proxyOrigin = '';
     const server = http.createServer((req, res) => {
@@ -18,7 +22,16 @@ async function startPreviewProxy(upstreamUrl, device) {
         if (requestUrl.pathname === bridgePath) {
             const selectedDevice = requestUrl.searchParams.get('device') || device;
             res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-            res.end((0, keyboardBridge_1.getKeyboardBridge)(token, selectedDevice));
+            res.end((enableRestProxy ? (0, restBridge_1.getRestBridge)(restPath) : '') + '\n' + (0, runtimeBridge_1.getRuntimeBridge)(token) + '\n' + (0, keyboardBridge_1.getKeyboardBridge)(token, selectedDevice));
+            return;
+        }
+        if (requestUrl.pathname.startsWith('/__phone_preview_rest_')) {
+            if (!enableRestProxy || requestUrl.pathname !== restPath) {
+                res.writeHead(404);
+                res.end('Proxy REST no disponible.');
+                return;
+            }
+            (0, restProxy_1.proxyRestRequest)(req, res, requestUrl, proxyOrigin);
             return;
         }
         const headers = { ...req.headers, host: upstream.host, 'accept-encoding': 'identity' };

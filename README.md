@@ -54,6 +54,30 @@ Use **Backspace** to delete characters and **Done**, **Search**, or **Send** for
 
 Read-only fields and fields configured with `TextInputType.none` do not open the virtual keyboard. Some less common Flutter input types may use the text layout because Flutter Web does not expose a distinct browser input mode for them.
 
+## REST APIs in the preview
+
+REST support is enabled by default. Use your API's usual **absolute HTTP or HTTPS URL** in Flutter, for example `http://localhost:8080/api/products` or `https://api.example.com/products`. Requests from browser `fetch` and `XMLHttpRequest` clients, including the standard web clients used by `http` and Dio, pass through the extension's local proxy. Your Flutter source does not need to change.
+
+The proxy supports HTTP methods such as GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS; JSON, multipart uploads, binary responses, and explicit authentication headers such as `Authorization: Bearer ...`. It preserves the API's status codes, including errors such as 401 or 422. The API does not need CORS headers for these preview requests.
+
+- The API must be reachable from the machine running the extension. For a local backend, use its actual localhost port; Android emulator addresses such as `10.0.2.2` do not refer to your computer in this web preview.
+- HTTPS certificates are validated normally. An unavailable backend or invalid certificate returns a proxy error (502); a request exceeding 120 seconds returns 504.
+- The proxy does not forward browser cookies or store API cookies. Use explicit authentication headers, or disable the proxy to test browser cookie authentication with your backend's CORS configuration.
+- Relative URLs still refer to the Flutter web server. Requests made inside Web Workers and API WebSockets are not intercepted.
+- Redirects are followed up to 10 times, and Authorization is removed when the destination origin changes. Uploads larger than 8 MiB are supported, but cannot be replayed if a redirect requires sending the same body again.
+- This setting applies to development previews. Test your deployed Flutter Web app with the backend's actual CORS configuration.
+
+To use the browser's normal networking behavior, disable **Flutter Phone Preview: Enable Rest Proxy** in Settings:
+
+```json
+{
+  "flutterPhonePreview.enableRestProxy": false
+}
+```
+
+Stop and start the preview after changing this setting.
+
+
 ## Update the app while working
 
 By default, saving a `.dart` file requests a Flutter update and reloads the preview when recompilation finishes.
@@ -75,6 +99,7 @@ Open VS Code Settings and search for **Flutter Phone Preview**. You can change:
 
 - **Port:** the port used to run the app. The default is `5001`.
 - **Device:** the device shown when the preview opens.
+- **Enable Rest Proxy:** allow REST calls through the local preview proxy (enabled by default).
 - **Auto Reload On Save:** enable or disable reloads when `.dart` files are saved.
 
 ## If the app does not appear

@@ -3,6 +3,9 @@ import * as net from 'net';
 import { randomBytes } from 'crypto';
 import { gunzipSync, inflateSync, brotliDecompressSync } from 'zlib';
 import { getKeyboardBridge } from './keyboardBridge';
+import { getRestBridge } from './restBridge';
+import { getRuntimeBridge } from './runtimeBridge';
+import { proxyRestRequest } from './restProxy';
 
 export interface PreviewProxy {
   url: string;
@@ -11,10 +14,16 @@ export interface PreviewProxy {
 }
 
 // Inject only the local preview response. The user's Flutter files are untouched.
-export async function startPreviewProxy(upstreamUrl: string, device: string): Promise<PreviewProxy> {
+export interface PreviewProxyOptions {
+  enableRestProxy?: boolean;
+}
+
+export async function startPreviewProxy(upstreamUrl: string, device: string, options: PreviewProxyOptions = {}): Promise<PreviewProxy> {
   const upstream = new URL(upstreamUrl);
   const token = randomBytes(24).toString('hex');
   const bridgePath = `/__phone_preview_${token}.js`;
+  const restPath = '/__phone_preview_rest_' + token;
+  const enableRestProxy = options.enableRestProxy !== false;
   const sockets = new Set<net.Socket>();
   let proxyOrigin = '';
   const server = http.createServer((req, res) => {
@@ -22,7 +31,16 @@ export async function startPreviewProxy(upstreamUrl: string, device: string): Pr
     if (requestUrl.pathname === bridgePath) {
       const selectedDevice = requestUrl.searchParams.get('device') || device;
       res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-      res.end(getKeyboardBridge(token, selectedDevice));
+      res.end((enableRestProxy ? getRestBridge(restPath) : '') + '\n' + getRuntimeBridge(token) + '\n' + getKeyboardBridge(token, selectedDevice));
+      return;
+    }
+    if (requestUrl.pathname.startsWith('/__phone_preview_rest_')) {
+      if (!enableRestProxy || requestUrl.pathname !== restPath) {
+        res.writeHead(404);
+        res.end('Proxy REST no disponible.');
+        return;
+      }
+      proxyRestRequest(req, res, requestUrl, proxyOrigin);
       return;
     }
     const headers = { ...req.headers, host: upstream.host, 'accept-encoding': 'identity' };
