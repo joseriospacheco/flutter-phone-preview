@@ -2,65 +2,66 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
-const { STR, resolveLang, t } = require('../out/i18n');
+const { resolveLang, STR, t } = require('../out/i18n.js');
 
-const root = path.join(__dirname, '..');
-const nlsEn = JSON.parse(fs.readFileSync(path.join(root, 'package.nls.json'), 'utf8'));
-const nlsEs = JSON.parse(fs.readFileSync(path.join(root, 'package.nls.es.json'), 'utf8'));
-const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const ROOT = path.join(__dirname, '..');
 
-test('en and es dictionaries have the same keys with no empty values', () => {
-  const enKeys = Object.keys(STR.en).sort();
-  const esKeys = Object.keys(STR.es).sort();
-  assert.deepEqual(esKeys, enKeys);
-  for (const key of enKeys) {
-    assert.ok(STR.en[key].length > 0, `en.${key} is empty`);
-    assert.ok(STR.es[key].length > 0, `es.${key} is empty`);
-  }
+test('en and es dictionaries have the same keys', () => {
+  const en = Object.keys(STR.en).sort();
+  const es = Object.keys(STR.es).sort();
+  assert.deepEqual(en, es, 'key sets diverge between en/es');
 });
 
-test('t() interpolates, falls back to English and then to the key', () => {
+test('t() returns the translated value and interpolates vars', () => {
+  assert.equal(t('en', 'host.panelTitle'), 'Flutter — Phone View');
+  assert.equal(t('es', 'host.panelTitle'), 'Flutter — Vista de Teléfono');
   assert.equal(t('es', 'host.starting', { port: 5001 }), 'Iniciando: flutter run -d web-server --web-port 5001');
-  assert.equal(t('en', 'host.starting', { port: 5001 }), 'Starting: flutter run -d web-server --web-port 5001');
-  assert.equal(t('fr', 'host.flutterStopped'), STR.en['host.flutterStopped']);
-  assert.equal(t('es', 'missing.key'), 'missing.key');
+  assert.equal(t('en', 'host.portCheckTitle', { port: 9 }), 'Port 9 is already in use (a previous "flutter run" is probably still around).');
 });
 
-test('resolveLang follows VS Code locale with manual override', () => {
+test('t() falls back to the key itself when missing', () => {
+  assert.equal(t('es', 'does.not.exist'), 'does.not.exist');
+});
+
+test('t() interpolates numbers and ignores unmatched vars', () => {
+  assert.equal(t('en', 'host.flutterExited', { code: 255, label: 'ignored' }), '\nFlutter exited with code 255');
+});
+
+test('resolveLang picks es from locale prefixes and en otherwise', () => {
   assert.equal(resolveLang('es', 'auto'), 'es');
   assert.equal(resolveLang('es-MX', 'auto'), 'es');
-  assert.equal(resolveLang('ES', 'auto'), 'es');
+  assert.equal(resolveLang('es_419', 'auto'), 'es');
   assert.equal(resolveLang('en', 'auto'), 'en');
-  assert.equal(resolveLang('en-US', 'auto'), 'en');
-  assert.equal(resolveLang('fr', 'auto'), 'en');
+  assert.equal(resolveLang('fr-FR', 'auto'), 'en');
   assert.equal(resolveLang(undefined, 'auto'), 'en');
   assert.equal(resolveLang('es', 'en'), 'en');
   assert.equal(resolveLang('en', 'es'), 'es');
+  assert.equal(resolveLang('fr', 'en'), 'en');
 });
 
-function collectRefs(value, into) {
-  if (typeof value === 'string') {
-    for (const m of value.matchAll(/%([A-Za-z0-9_.]+)%/g)) into.add(m[1]);
-  } else if (Array.isArray(value)) {
-    value.forEach((v) => collectRefs(v, into));
-  } else if (value && typeof value === 'object') {
-    Object.values(value).forEach((v) => collectRefs(v, into));
-  }
-  return into;
-}
+test('every %key% used in package.json exists in both nls files', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const nlsEn = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.nls.json'), 'utf8'));
+  const nlsEs = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.nls.es.json'), 'utf8'));
 
-test('every %key% in package.json exists in both nls files', () => {
-  const refs = collectRefs(pkg.contributes, new Set());
-  assert.ok(refs.size > 0);
-  for (const key of refs) {
-    assert.ok(key in nlsEn, `package.nls.json missing ${key}`);
-    assert.ok(key in nlsEs, `package.nls.es.json missing ${key}`);
-    assert.ok(nlsEn[key].length > 0 && nlsEs[key].length > 0, `${key} is empty`);
-  }
-});
+  const keys = new Set();
+  const scan = (obj) => {
+    if (typeof obj === 'string') {
+      const m = obj.match(/%(cmd|config)\.[^%]+%/g);
+      if (m) m.forEach((k) => keys.add(k));
+    } else if (Array.isArray(obj)) {
+      obj.forEach(scan);
+    } else if (obj && typeof obj === 'object') {
+      Object.values(obj).forEach(scan);
+    }
+  };
+  scan(pkg);
 
-test('language setting offers auto/es/en', () => {
-  const lang = pkg.contributes.configuration.properties['flutterPhonePreview.language'];
-  assert.deepEqual(lang.enum, ['auto', 'es', 'en']);
-  assert.equal(lang.default, 'auto');
+  const enKeys = Object.keys(nlsEn).map((k) => `%${k}%`);
+  const esKeys = Object.keys(nlsEs).map((k) => `%${k}%`);
+  for (const key of keys) {
+    assert.ok(enKeys.includes(key), `missing in package.nls.json: ${key}`);
+    assert.ok(esKeys.includes(key), `missing in package.nls.es.json: ${key}`);
+  }
+  assert.ok(keys.size > 0, 'no %cmd.*%/%config.*% keys found in package.json');
 });

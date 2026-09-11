@@ -707,107 +707,6 @@ function getWebviewHtml(url, device, keyboardToken = '') {
     z-index: 2;
     display: none;
   }
-  .se-hardware { display: none; pointer-events: none; }
-  .phone.iphone-se {
-    background-image: linear-gradient(115deg, #202124 0%, #101113 24%, #090a0c 65%, #17181a 100%);
-    box-shadow: 0 0 0 1px #777b82, 0 0 0 3px #303237, 0 0 0 4px #71747a,
-      inset 0 0 0 2px #55585e, inset 0 0 0 5px #08090b,
-      inset 0 0 0 6px #292b30, 0 6px 12px rgba(0, 0, 0, 0.25),
-      0 24px 48px -14px rgba(0, 0, 0, 0.6);
-  }
-  .iphone-se .se-hardware {
-    display: block;
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: var(--portrait-frame-width);
-    height: var(--portrait-frame-height);
-    transform-origin: top left;
-  }
-  .iphone-se.landscape .se-hardware {
-    transform: translateY(var(--portrait-frame-width)) rotate(-90deg);
-  }
-  .se-receiver {
-    position: absolute;
-    top: 52px;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 62px;
-    height: 7px;
-    border: 1px solid #08090b;
-    border-radius: 8px;
-    background: radial-gradient(circle, #34373c 0.6px, transparent 0.9px) 0 0 / 3px 3px, #101114;
-    box-shadow: inset 0 1px 2px #000, 0 1px 0 #34363a;
-  }
-  .se-camera {
-    position: absolute;
-    top: 45px;
-    left: calc(50% - 82px);
-    width: 14px;
-    height: 14px;
-    border: 3px solid #08090c;
-    border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #37617c 0%, #15273f 25%, #080e1b 55%, #162133 75%, #030509 100%);
-    box-shadow: 0 0 0 1px #25272d;
-  }
-  .se-sensor {
-    position: absolute;
-    top: 24px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 9px;
-    height: 9px;
-    border: 2px solid #111216;
-    border-radius: 50%;
-    background: #080b11;
-    box-shadow: 0 0 0 1px #202126;
-  }
-  .se-side-button {
-    position: absolute;
-    left: -7px;
-    width: 4px;
-    border-radius: 2px 0 0 2px;
-    background: linear-gradient(90deg, #282a2e, #85878c 50%, #34363b);
-    box-shadow: 0 0 0 1px #18191c;
-  }
-  .se-mute { top: 112px; height: 24px; }
-  .se-volume-up { top: 172px; height: 46px; }
-  .se-volume-down { top: 234px; height: 46px; }
-  .se-power { top: 172px; left: auto; right: -7px; height: 46px; border-radius: 0 2px 2px 0; }
-  .homebtn {
-    position: absolute;
-    bottom: 25px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 58px;
-    height: 58px;
-    border-radius: 50%;
-    padding: 3px;
-    background: linear-gradient(135deg, #6b6e73 0%, #24262b 30%, #111216 48%, #797c83 72%, #25272c 100%);
-    box-shadow: 0 0 0 1px #08090b, 0 1px 1px #34363b;
-  }
-  .homebtn::after {
-    content: '';
-    display: block;
-    width: 100%;
-    height: 100%;
-    border-radius: inherit;
-    background: linear-gradient(145deg, #18191c, #090a0c);
-    box-shadow: inset 0 1px 3px #050608;
-  }
-  .iphone-se .screen {
-    box-shadow: 0 0 0 1px #000, 0 0 0 2px #25262a;
-  }
-  .iphone-se .statusbar {
-    height: 20px;
-    padding: 0 8px;
-    font-size: 12px;
-    font-weight: 500;
-  }
-  .iphone-se #clockEl { position: absolute; left: 50%; transform: translateX(-50%); }
-  .iphone-se .status-icons { width: 100%; gap: 5px; }
-  .iphone-se .batt { margin-left: auto; }
-  .iphone-se.landscape .statusbar { display: none; }
   .screen {
     width: 100%;
     height: 100%;
@@ -997,16 +896,6 @@ function getWebviewHtml(url, device, keyboardToken = '') {
     <div class="phone" id="phone">
       <div class="notch" id="notchEl"></div>
       <div class="punch" id="punchEl"></div>
-      <div class="se-hardware" aria-hidden="true">
-        <div class="se-sensor"></div>
-        <div class="se-camera"></div>
-        <div class="se-receiver"></div>
-        <div class="se-side-button se-mute"></div>
-        <div class="se-side-button se-volume-up"></div>
-        <div class="se-side-button se-volume-down"></div>
-        <div class="se-side-button se-power"></div>
-        <div class="homebtn"></div>
-      </div>
       <div class="screen">
         <iframe id="preview" title="${(0, i18n_1.t)(lang, 'panel.iframeTitle')}" data-url="${url}"></iframe>
         ${(0, virtualKeyboard_1.getKeyboardMarkup)(lang)}
@@ -1057,7 +946,8 @@ function getWebviewHtml(url, device, keyboardToken = '') {
       { id: 'iphone15', name: 'iPhone 15 Pro', width: 393, height: 852, radius: 52, notchType: 'island', notchWidth: 120, inset: 44, frame: '#111111' },
       { id: 'iphone_16_pro_max', name: 'iPhone 16 Pro Max', width: 440, height: 956, radius: 56, notchType: 'island', notchWidth: 125, inset: 46, frame: '#111111' },
       { id: 'iphone_14', name: 'iPhone 14', width: 390, height: 844, radius: 48, notchType: 'island', notchWidth: 200, inset: 46, frame: '#0e0e0e' },
-      { id: 'iphone_se', name: 'iPhone SE', width: 375, height: 667, radius: 60, screenRadius: 2, bezelX: 28, bezelY: 108, notchType: 'home', inset: 20, frame: '#0e0e0e' },
+      { id: 'iphone_xr', name: 'iPhone XR', width: 414, height: 896, radius: 48, notchType: 'island', notchWidth: 210, inset: 46, frame: '#0e0e0e' },
+      { id: 'iphone_xs_slim', name: 'iPhone XS sin marco', width: 375, height: 812, radius: 30, screenRadius: 26, bezelX: 3, bezelY: 3, notchType: 'island', notchWidth: 210, inset: 46, frame: '#0e0e0e' },
       { id: 'pixel7', name: 'Google Pixel 7', width: 412, height: 915, radius: 30, notchType: 'punch', inset: 38, frame: '#1b1b1b' },
       { id: 'pixel8', name: 'Google Pixel 8', width: 412, height: 915, radius: 32, notchType: 'punch', inset: 38, frame: '#1b1b1b' },
       { id: 'galaxy_s22', name: 'Samsung Galaxy S22', width: 360, height: 780, radius: 26, notchType: 'punch', inset: 36, frame: '#151515' },
@@ -1098,9 +988,7 @@ function getWebviewHtml(url, device, keyboardToken = '') {
 
       const bezel = phoneBezel();
       const outerSize = phoneOuterSize();
-      const isSE = currentDevice.id === 'iphone_se';
 
-      phone.classList.toggle('iphone-se', isSE);
       phone.classList.toggle('landscape', rotated);
       phone.style.width = outerSize.w + 'px';
       phone.style.height = outerSize.h + 'px';
@@ -1119,7 +1007,7 @@ function getWebviewHtml(url, device, keyboardToken = '') {
       punchEl.style.background = currentDevice.frame;
 
       // Reserva el area superior y separa el contenido de la isla.
-      const contentTop = isSE && rotated ? 0 : (!rotated && currentDevice.notchType === 'island') ? 26 : currentDevice.inset;
+      const contentTop = (!rotated && currentDevice.notchType === 'island') ? 26 : currentDevice.inset;
       preview.style.top = contentTop + 'px';
       preview.style.height = 'calc(100% - ' + contentTop + 'px)';
       layoutKeyboard();

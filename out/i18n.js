@@ -7,7 +7,7 @@ function resolveLang(envLanguage, override) {
     if (override === 'es' || override === 'en')
         return override;
     const tag = (envLanguage || '').toLowerCase();
-    if (tag === 'es' || tag.startsWith('es-'))
+    if (tag === 'es' || tag.startsWith('es-') || tag.startsWith('es_'))
         return 'es';
     return 'en';
 }
@@ -110,7 +110,8 @@ const en = {
     'device.iphone15': 'with Dynamic Island',
     'device.iphone_16_pro_max': 'large screen, with Dynamic Island',
     'device.iphone_14': 'with classic notch',
-    'device.iphone_se': 'with home button',
+    'device.iphone_xr': 'with classic notch',
+    'device.iphone_xs_slim': 'notch, thin bezels',
     'device.pixel7': 'punch-hole camera',
     'device.pixel8': 'punch-hole camera',
     'device.galaxy_s22': 'punch-hole camera',
@@ -224,7 +225,7 @@ const es = {
     'panel.stageLabel': 'Vista previa de la app',
     'panel.iframeTitle': 'Aplicación Flutter',
     'panel.loadingApp': 'Cargando app…',
-    'panel.loadingDetail': 'Preparing your preview',
+    'panel.loadingDetail': 'Preparando tu vista previa',
     'panel.statusPreparing': 'Preparando vista',
     'panel.statusLoading': 'Cargando vista',
     'panel.statusSlow': 'La carga está tardando',
@@ -246,7 +247,8 @@ const es = {
     'device.iphone15': 'con Dynamic Island',
     'device.iphone_16_pro_max': 'pantalla grande, con Dynamic Island',
     'device.iphone_14': 'con notch clásico',
-    'device.iphone_se': 'con botón de inicio',
+    'device.iphone_xr': 'con notch clásico',
+    'device.iphone_xs_slim': 'notch, bordes delgados',
     'device.pixel7': 'cámara punch-hole',
     'device.pixel8': 'cámara punch-hole',
     'device.galaxy_s22': 'cámara punch-hole',
