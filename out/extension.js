@@ -589,16 +589,21 @@ function getWebviewHtml(url, device, keyboardToken = '') {
     flex-shrink: 0;
   }
   .toolbar .zoom-group button {
-    height: 26px;
-    padding: 0 7px;
+    height: 24px;
+    padding: 0 4px;
     border: 0;
     background: transparent;
+  }
+  .toolbar .zoom-group .icon {
+    width: 13px;
+    height: 13px;
   }
   .toolbar .zoom-group button:hover { background: var(--vscode-toolbar-hoverBackground, #303949); }
   #zoomLabel {
     font-variant-numeric: tabular-nums;
     font-size: 11px;
-    min-width: 32px;
+    min-width: 28px;
+    padding: 0 2px;
     text-align: center;
   }
   .stage {
@@ -647,6 +652,13 @@ function getWebviewHtml(url, device, keyboardToken = '') {
     .stage { padding: 18px; }
     .preview-footer { padding: 9px 12px; }
     .toolbar button { padding: 0 8px; }
+  }
+  @media (max-width: 300px) {
+    .toolbar { padding: 6px 8px; gap: 4px; }
+    #zoomLabel { display: none; }
+    .toolbar .zoom-group button { padding: 0 4px; }
+    .device-picker { flex-basis: 100%; }
+    #deviceDetails { display: none; }
   }
   @media (max-height: 480px) {
     .toolbar { padding-top: 8px; padding-bottom: 8px; }
@@ -888,7 +900,7 @@ function getWebviewHtml(url, device, keyboardToken = '') {
       </div>
       <button id="fitBtn" title="${(0, i18n_1.t)(lang, 'panel.fit')}" aria-label="${(0, i18n_1.t)(lang, 'panel.fit')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg><span class="btn-text">${(0, i18n_1.t)(lang, 'panel.fitShort')}</span></button>
       <button id="rotateBtn" title="${(0, i18n_1.t)(lang, 'panel.rotate')}" aria-label="${(0, i18n_1.t)(lang, 'panel.rotateScreen')}" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="6" width="8" height="12" rx="2" transform="rotate(30 12 12)"/><path d="M4 9a9 9 0 0 1 14-5l2 2m0-4v4h-4M20 15a9 9 0 0 1-14 5l-2-2m0 4v-4h4"/></svg><span class="btn-text">${(0, i18n_1.t)(lang, 'panel.rotateShort')}</span></button>
-      <button id="reloadBtn" class="primary" title="${(0, i18n_1.t)(lang, 'panel.reload')}" aria-label="${(0, i18n_1.t)(lang, 'panel.reload')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"/></svg><span>${(0, i18n_1.t)(lang, 'panel.reloadShort')}</span></button>
+      <button id="reloadBtn" class="primary" title="${(0, i18n_1.t)(lang, 'panel.reload')}" aria-label="${(0, i18n_1.t)(lang, 'panel.reload')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"/></svg><span class="btn-text">${(0, i18n_1.t)(lang, 'panel.reloadShort')}</span></button>
     </div>
   </section>
   <main class="stage" id="stage" aria-label="${(0, i18n_1.t)(lang, 'panel.stageLabel')}">
