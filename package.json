@@ -12,7 +12,9 @@
   "engines": {
     "vscode": "^1.80.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "activationEvents": [
     "onCommand:flutterPhonePreview.start",
     "onCommand:flutterPhonePreview.stop",
@@ -54,7 +56,22 @@
         },
         "flutterPhonePreview.device": {
           "type": "string",
-          "enum": ["iphone15", "iphone_16_pro_max", "iphone_14", "iphone_se", "pixel7", "pixel8", "galaxy_s22", "galaxy_s24_ultra", "galaxy_a54", "xiaomi_redmi_note13", "oneplus_12", "moto_edge", "ipad_mini", "ipad_pro"],
+          "enum": [
+            "iphone15",
+            "iphone_16_pro_max",
+            "iphone_14",
+            "iphone_se",
+            "pixel7",
+            "pixel8",
+            "galaxy_s22",
+            "galaxy_s24_ultra",
+            "galaxy_a54",
+            "xiaomi_redmi_note13",
+            "oneplus_12",
+            "moto_edge",
+            "ipad_mini",
+            "ipad_pro"
+          ],
           "enumDescriptions": [
             "%config.device.iphone15%",
             "%config.device.iphone_16_pro_max%",
@@ -91,7 +108,11 @@
         },
         "flutterPhonePreview.language": {
           "type": "string",
-          "enum": ["auto", "es", "en"],
+          "enum": [
+            "auto",
+            "es",
+            "en"
+          ],
           "enumDescriptions": [
             "%config.language.auto%",
             "%config.language.es%",
