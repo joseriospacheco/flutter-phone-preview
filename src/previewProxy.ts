@@ -7,6 +7,7 @@ import { getPrefsBridge, PREFS_MAX_VALUE_BYTES } from './prefsBridge';
 import { getRestBridge } from './restBridge';
 import { getRuntimeBridge } from './runtimeBridge';
 import { proxyRestRequest } from './restProxy';
+import { Lang, t } from './i18n';
 
 export interface PreviewProxy {
   url: string;
@@ -21,6 +22,7 @@ export interface PreviewProxyOptions {
   persistPreferences?: boolean;
   initialPrefs?: Record<string, string>;
   onPrefsChanged?: (prefs: Record<string, string>) => Promise<void> | void;
+  lang?: Lang;
 }
 
 export const PREFS_MAX_KEYS = 2000;
@@ -47,6 +49,7 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
   const prefsPath = '/__phone_preview_prefs_' + token;
   const enableRestProxy = options.enableRestProxy !== false;
   const persistPreferences = options.persistPreferences !== false;
+  const lang: Lang = options.lang || 'es';
   const prefs = sanitizePrefs(options.initialPrefs);
   let prefsDirty = false;
   let prefsTimer: NodeJS.Timeout | undefined;
@@ -98,7 +101,7 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
       res.end(
         (enableRestProxy ? getRestBridge(restPath) : '') + '\n' +
         (persistPreferences ? getPrefsBridge(JSON.stringify(prefs), prefsPath) : '') + '\n' +
-        getRuntimeBridge(token) + '\n' +
+        getRuntimeBridge(token, lang) + '\n' +
         getKeyboardBridge(token, selectedDevice)
       );
       return;
@@ -106,7 +109,7 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
     if (requestUrl.pathname.startsWith('/__phone_preview_prefs_')) {
       if (!persistPreferences || requestUrl.pathname !== prefsPath || req.method !== 'POST') {
         res.writeHead(404);
-        res.end('Preferencias no disponibles.');
+        res.end(t(lang, 'proxy.prefsUnavailable'));
         return;
       }
       const chunks: Buffer[] = [];
@@ -117,7 +120,7 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
         if (size > PREFS_MAX_BODY_BYTES) {
           aborted = true;
           res.writeHead(413);
-          res.end('Cuerpo demasiado grande.');
+          res.end(t(lang, 'proxy.bodyTooLarge'));
           req.destroy();
           return;
         }
@@ -146,7 +149,7 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
           res.end();
         } catch {
           res.writeHead(400);
-          res.end('Cuerpo inválido.');
+          res.end(t(lang, 'proxy.invalidBody'));
         }
       });
       return;
@@ -154,10 +157,10 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
     if (requestUrl.pathname.startsWith('/__phone_preview_rest_')) {
       if (!enableRestProxy || requestUrl.pathname !== restPath) {
         res.writeHead(404);
-        res.end('Proxy REST no disponible.');
+        res.end(t(lang, 'proxy.restUnavailable'));
         return;
       }
-      proxyRestRequest(req, res, requestUrl, proxyOrigin);
+      proxyRestRequest(req, res, requestUrl, proxyOrigin, lang);
       return;
     }
     const headers = { ...req.headers, host: upstream.host, 'accept-encoding': 'identity' };
@@ -199,13 +202,13 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
           res.end(injected);
         } catch {
           res.writeHead(502);
-          res.end('No se pudo preparar la vista previa.');
+          res.end(t(lang, 'proxy.prepareFailed'));
         }
       });
     });
     target.on('error', () => {
       if (!res.headersSent) res.writeHead(502);
-      res.end('El servidor Flutter no está disponible.');
+      res.end(t(lang, 'proxy.flutterUnavailable'));
     });
     target.setTimeout(120000, () => target.destroy());
     res.on('close', () => target.destroy());

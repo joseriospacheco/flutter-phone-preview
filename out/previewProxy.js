@@ -11,6 +11,7 @@ const prefsBridge_1 = require("./prefsBridge");
 const restBridge_1 = require("./restBridge");
 const runtimeBridge_1 = require("./runtimeBridge");
 const restProxy_1 = require("./restProxy");
+const i18n_1 = require("./i18n");
 exports.PREFS_MAX_KEYS = 2000;
 const PREFS_SAVE_DEBOUNCE_MS = 500;
 const PREFS_MAX_BODY_BYTES = 256 * 1024;
@@ -35,6 +36,7 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
     const prefsPath = '/__phone_preview_prefs_' + token;
     const enableRestProxy = options.enableRestProxy !== false;
     const persistPreferences = options.persistPreferences !== false;
+    const lang = options.lang || 'es';
     const prefs = sanitizePrefs(options.initialPrefs);
     let prefsDirty = false;
     let prefsTimer;
@@ -82,14 +84,14 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
             res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
             res.end((enableRestProxy ? (0, restBridge_1.getRestBridge)(restPath) : '') + '\n' +
                 (persistPreferences ? (0, prefsBridge_1.getPrefsBridge)(JSON.stringify(prefs), prefsPath) : '') + '\n' +
-                (0, runtimeBridge_1.getRuntimeBridge)(token) + '\n' +
+                (0, runtimeBridge_1.getRuntimeBridge)(token, lang) + '\n' +
                 (0, keyboardBridge_1.getKeyboardBridge)(token, selectedDevice));
             return;
         }
         if (requestUrl.pathname.startsWith('/__phone_preview_prefs_')) {
             if (!persistPreferences || requestUrl.pathname !== prefsPath || req.method !== 'POST') {
                 res.writeHead(404);
-                res.end('Preferencias no disponibles.');
+                res.end((0, i18n_1.t)(lang, 'proxy.prefsUnavailable'));
                 return;
             }
             const chunks = [];
@@ -100,7 +102,7 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
                 if (size > PREFS_MAX_BODY_BYTES) {
                     aborted = true;
                     res.writeHead(413);
-                    res.end('Cuerpo demasiado grande.');
+                    res.end((0, i18n_1.t)(lang, 'proxy.bodyTooLarge'));
                     req.destroy();
                     return;
                 }
@@ -136,7 +138,7 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
                 }
                 catch {
                     res.writeHead(400);
-                    res.end('Cuerpo inválido.');
+                    res.end((0, i18n_1.t)(lang, 'proxy.invalidBody'));
                 }
             });
             return;
@@ -144,10 +146,10 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
         if (requestUrl.pathname.startsWith('/__phone_preview_rest_')) {
             if (!enableRestProxy || requestUrl.pathname !== restPath) {
                 res.writeHead(404);
-                res.end('Proxy REST no disponible.');
+                res.end((0, i18n_1.t)(lang, 'proxy.restUnavailable'));
                 return;
             }
-            (0, restProxy_1.proxyRestRequest)(req, res, requestUrl, proxyOrigin);
+            (0, restProxy_1.proxyRestRequest)(req, res, requestUrl, proxyOrigin, lang);
             return;
         }
         const headers = { ...req.headers, host: upstream.host, 'accept-encoding': 'identity' };
@@ -194,14 +196,14 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
                 }
                 catch {
                     res.writeHead(502);
-                    res.end('No se pudo preparar la vista previa.');
+                    res.end((0, i18n_1.t)(lang, 'proxy.prepareFailed'));
                 }
             });
         });
         target.on('error', () => {
             if (!res.headersSent)
                 res.writeHead(502);
-            res.end('El servidor Flutter no está disponible.');
+            res.end((0, i18n_1.t)(lang, 'proxy.flutterUnavailable'));
         });
         target.setTimeout(120000, () => target.destroy());
         res.on('close', () => target.destroy());

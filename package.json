@@ -25,69 +25,80 @@
     "commands": [
       {
         "command": "flutterPhonePreview.start",
-        "title": "Flutter: Iniciar vista previa en teléfono"
+        "title": "%cmd.start%"
       },
       {
         "command": "flutterPhonePreview.stop",
-        "title": "Flutter: Detener vista previa en teléfono"
+        "title": "%cmd.stop%"
       },
       {
         "command": "flutterPhonePreview.hotReload",
-        "title": "Flutter: Hot reload (vista previa en teléfono)"
+        "title": "%cmd.hotReload%"
       },
       {
         "command": "flutterPhonePreview.hotRestart",
-        "title": "Flutter: Hot restart (vista previa en teléfono)"
+        "title": "%cmd.hotRestart%"
       },
       {
         "command": "flutterPhonePreview.clearPreferences",
-        "title": "Flutter: Borrar preferencias guardadas (vista previa en teléfono)"
+        "title": "%cmd.clearPreferences%"
       }
     ],
     "configuration": {
-      "title": "Flutter Phone Preview",
+      "title": "%config.title%",
       "properties": {
         "flutterPhonePreview.port": {
           "type": "number",
           "default": 5001,
-          "description": "Puerto usado por 'flutter run -d web-server'."
+          "description": "%config.port%"
         },
         "flutterPhonePreview.device": {
           "type": "string",
           "enum": ["iphone15", "iphone_16_pro_max", "iphone_14", "iphone_se", "pixel7", "pixel8", "galaxy_s22", "galaxy_s24_ultra", "galaxy_a54", "xiaomi_redmi_note13", "oneplus_12", "moto_edge", "ipad_mini", "ipad_pro"],
           "enumDescriptions": [
-            "iPhone 15 Pro (con Dynamic Island)",
-            "iPhone 16 Pro Max (pantalla grande, con Dynamic Island)",
-            "iPhone 14 (con notch clásico)",
-            "iPhone SE (con botón de inicio)",
-            "Google Pixel 7 (cámara punch-hole)",
-            "Google Pixel 8 (cámara punch-hole)",
-            "Samsung Galaxy S22 (cámara punch-hole)",
-            "Samsung Galaxy S24 Ultra (cámara punch-hole)",
-            "Samsung Galaxy A54 (cámara punch-hole)",
-            "Xiaomi Redmi Note 13 (cámara punch-hole)",
-            "OnePlus 12 (cámara punch-hole)",
-            "Motorola Edge 40 (cámara punch-hole)",
-            "iPad Mini (tablet, sin notch)",
-            "iPad Pro 11\" (tablet grande, sin notch)"
+            "%config.device.iphone15%",
+            "%config.device.iphone_16_pro_max%",
+            "%config.device.iphone_14%",
+            "%config.device.iphone_se%",
+            "%config.device.pixel7%",
+            "%config.device.pixel8%",
+            "%config.device.galaxy_s22%",
+            "%config.device.galaxy_s24_ultra%",
+            "%config.device.galaxy_a54%",
+            "%config.device.xiaomi_redmi_note13%",
+            "%config.device.oneplus_12%",
+            "%config.device.moto_edge%",
+            "%config.device.ipad_mini%",
+            "%config.device.ipad_pro%"
           ],
           "default": "iphone15",
-          "description": "Modelo de teléfono mostrado inicialmente. También se puede cambiar desde el propio panel con el selector desplegable."
+          "description": "%config.device%"
         },
         "flutterPhonePreview.enableRestProxy": {
           "type": "boolean",
           "default": true,
-          "description": "Permite consumir APIs REST HTTP/HTTPS desde la vista previa sin bloqueos CORS mediante un proxy local. Compatible con fetch y XMLHttpRequest (http/Dio). Usa autenticación por encabezados; no comparte cookies con las APIs. Reinicia la vista previa al cambiar esta opción."
+          "description": "%config.enableRestProxy%"
         },
         "flutterPhonePreview.persistPreferences": {
           "type": "boolean",
           "default": true,
-          "description": "Conserva los valores de shared_preferences de la app entre reinicios de la vista previa (se guardan por proyecto). Reinicia la vista previa al cambiar esta opción."
+          "description": "%config.persistPreferences%"
         },
         "flutterPhonePreview.autoReloadOnSave": {
           "type": "boolean",
           "default": true,
-          "description": "Al guardar un archivo .dart, envía automáticamente un hot reload a Flutter y refresca el panel cuando termina de recompilar."
+          "description": "%config.autoReloadOnSave%"
+        },
+        "flutterPhonePreview.language": {
+          "type": "string",
+          "enum": ["auto", "es", "en"],
+          "enumDescriptions": [
+            "%config.language.auto%",
+            "%config.language.es%",
+            "%config.language.en%"
+          ],
+          "default": "auto",
+          "description": "%config.language%"
         }
       }
     }

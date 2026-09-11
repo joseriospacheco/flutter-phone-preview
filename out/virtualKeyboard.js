@@ -1,7 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.keyboardMarkup = exports.keyboardStyles = void 0;
+exports.getKeyboardMarkup = getKeyboardMarkup;
 exports.getVirtualKeyboardScript = getVirtualKeyboardScript;
+const i18n_1 = require("./i18n");
 exports.keyboardStyles = String.raw `
   .virtual-keyboard {
     position: absolute; inset: auto 0 0; z-index: 6;
@@ -34,20 +36,52 @@ exports.keyboardStyles = String.raw `
   .virtual-keyboard[data-landscape="true"] { padding-bottom: 6px; gap: 4px; }
   .virtual-keyboard[data-landscape="true"] .vk-rows { gap: 3px; }
 `;
-exports.keyboardMarkup = `<section class="virtual-keyboard" id="virtualKeyboard" aria-label="Teclado virtual" hidden>
-  <div class="vk-caption"><span id="keyboardTypeLabel">Texto</span><button type="button" id="keyboardDone" aria-label="Confirmar entrada">Listo</button><button type="button" id="keyboardHide" aria-label="Ocultar teclado" title="Ocultar teclado">⌄</button></div>
+function getKeyboardMarkup(lang = 'es') {
+    return `<section class="virtual-keyboard" id="virtualKeyboard" aria-label="${(0, i18n_1.t)(lang, 'keyboard.label')}" hidden>
+  <div class="vk-caption"><span id="keyboardTypeLabel">${(0, i18n_1.t)(lang, 'keyboard.text')}</span><button type="button" id="keyboardDone" aria-label="${(0, i18n_1.t)(lang, 'keyboard.confirm')}">${(0, i18n_1.t)(lang, 'keyboard.done')}</button><button type="button" id="keyboardHide" aria-label="${(0, i18n_1.t)(lang, 'keyboard.hide')}" title="${(0, i18n_1.t)(lang, 'keyboard.hide')}">⌄</button></div>
   <div class="vk-rows" id="keyboardRows"></div>
 </section>`;
+}
+// Kept for compatibility; new code should use getKeyboardMarkup(lang).
+exports.keyboardMarkup = getKeyboardMarkup();
 // Shares only the iframe reference and phone layout with the webview script.
-function getVirtualKeyboardScript(token) {
+function getVirtualKeyboardScript(token, lang = 'es') {
+    const kb = {
+        done: (0, i18n_1.t)(lang, 'keyboard.done'),
+        text: (0, i18n_1.t)(lang, 'keyboard.text'),
+        multiline: (0, i18n_1.t)(lang, 'keyboard.multiline'),
+        space: (0, i18n_1.t)(lang, 'keyboard.space'),
+        shift: (0, i18n_1.t)(lang, 'keyboard.shift'),
+        backspace: (0, i18n_1.t)(lang, 'keyboard.backspace'),
+        showLetters: (0, i18n_1.t)(lang, 'keyboard.showLetters'),
+        showSymbols: (0, i18n_1.t)(lang, 'keyboard.showSymbols'),
+        actions: {
+            enter: (0, i18n_1.t)(lang, 'keyboard.action.enter'),
+            done: (0, i18n_1.t)(lang, 'keyboard.action.done'),
+            next: (0, i18n_1.t)(lang, 'keyboard.action.next'),
+            previous: (0, i18n_1.t)(lang, 'keyboard.action.previous'),
+            search: (0, i18n_1.t)(lang, 'keyboard.action.search'),
+            send: (0, i18n_1.t)(lang, 'keyboard.action.send'),
+            go: (0, i18n_1.t)(lang, 'keyboard.action.go')
+        },
+        modes: {
+            numeric: (0, i18n_1.t)(lang, 'keyboard.mode.numeric'),
+            decimal: (0, i18n_1.t)(lang, 'keyboard.mode.decimal'),
+            tel: (0, i18n_1.t)(lang, 'keyboard.mode.tel'),
+            email: (0, i18n_1.t)(lang, 'keyboard.mode.email'),
+            url: (0, i18n_1.t)(lang, 'keyboard.mode.url'),
+            search: (0, i18n_1.t)(lang, 'keyboard.mode.search')
+        }
+    };
     return String.raw `
     const keyboardToken = ${JSON.stringify(token)};
+    const keyboardStrings = ${JSON.stringify(kb)};
     const virtualKeyboard = document.getElementById('virtualKeyboard');
     const keyboardRows = document.getElementById('keyboardRows');
     let keyboardState = { visible: false, fieldId: -1, mode: 'text', action: 'done', multiline: false };
     let shifted = false;
     let symbols = false;
-    const actionLabels = { enter: 'Intro', done: 'Listo', next: 'Siguiente', previous: 'Anterior', search: 'Buscar', send: 'Enviar', go: 'Ir' };
+    const actionLabels = keyboardStrings.actions;
     function layoutKeyboard() {
       const screen = phone.querySelector('.screen');
       const inset = parseFloat(preview.style.top) || 0;
@@ -69,17 +103,17 @@ function getVirtualKeyboardScript(token) {
     function renderKeyboard() {
       const mode = keyboardState.mode;
       const numeric = ['numeric', 'decimal', 'tel'].includes(mode);
-      const labels = { numeric: 'Números', decimal: 'Decimales', tel: 'Teléfono', email: 'Correo electrónico', url: 'Dirección web', search: 'Búsqueda' };
-      document.getElementById('keyboardTypeLabel').textContent = labels[mode] || (keyboardState.multiline ? 'Texto multilínea' : 'Texto');
-      document.getElementById('keyboardDone').textContent = actionLabels[keyboardState.action] || 'Listo';
+      const labels = { numeric: keyboardStrings.modes.numeric, decimal: keyboardStrings.modes.decimal, tel: keyboardStrings.modes.tel, email: keyboardStrings.modes.email, url: keyboardStrings.modes.url, search: keyboardStrings.modes.search };
+      document.getElementById('keyboardTypeLabel').textContent = labels[mode] || (keyboardState.multiline ? keyboardStrings.multiline : keyboardStrings.text);
+      document.getElementById('keyboardDone').textContent = actionLabels[keyboardState.action] || keyboardStrings.done;
       keyboardRows.replaceChildren();
       function row(keys) {
         const element = document.createElement('div'); element.className = 'vk-row';
         for (const key of keys) {
           const button = document.createElement('button'); button.type = 'button';
-          const special = { shift: shifted ? '⇧' : '⇧', backspace: '⌫', symbols: symbols ? 'ABC' : '123', space: 'espacio', enter: actionLabels[keyboardState.action] || 'Listo' };
+          const special = { shift: shifted ? '⇧' : '⇧', backspace: '⌫', symbols: symbols ? 'ABC' : '123', space: keyboardStrings.space, enter: actionLabels[keyboardState.action] || keyboardStrings.done };
           button.textContent = special[key] || key;
-          const names = { shift: 'Mayúsculas', backspace: 'Borrar', symbols: symbols ? 'Mostrar letras' : 'Mostrar símbolos', space: 'Espacio', enter: actionLabels[keyboardState.action] || 'Listo' };
+          const names = { shift: keyboardStrings.shift, backspace: keyboardStrings.backspace, symbols: symbols ? keyboardStrings.showLetters : keyboardStrings.showSymbols, space: keyboardStrings.space, enter: actionLabels[keyboardState.action] || keyboardStrings.done };
           button.setAttribute('aria-label', names[key] || key);
           if (special[key]) button.className = 'vk-special vk-wide';
           if (key === 'space') button.className = 'vk-space';

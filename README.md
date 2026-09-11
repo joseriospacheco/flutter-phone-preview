@@ -1,5 +1,7 @@
 # Flutter Phone Preview
 
+> **Language:** English | [Español](README.es.md)
+
 Preview your Flutter app inside VS Code with an iPhone, Android phone, or tablet frame. Switch devices, rotate the screen, adjust the zoom, and test text fields without leaving the editor.
 
 ## Screenshots
@@ -109,6 +111,9 @@ Open VS Code Settings and search for **Flutter Phone Preview**. You can change:
 - **Enable Rest Proxy:** allow REST calls through the local preview proxy (enabled by default).
 - **Persist Preferences:** keep the app's `shared_preferences` values between preview restarts, stored per project (enabled by default).
 - **Auto Reload On Save:** enable or disable reloads when `.dart` files are saved.
+- **Language:** `auto` follows the VS Code language (default), or force `es` / `en`. Reload the window after changing it.
+
+Command titles, messages, settings and the preview panel follow the same language.
 
 ## Persistent preferences
 

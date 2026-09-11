@@ -2,8 +2,11 @@ import * as vscode from 'vscode';
 import * as http from 'http';
 import * as net from 'net';
 import { PreviewProxy, startPreviewProxy } from './previewProxy';
-import { keyboardStyles, keyboardMarkup, getVirtualKeyboardScript } from './virtualKeyboard';
+import { keyboardStyles, getKeyboardMarkup, getVirtualKeyboardScript } from './virtualKeyboard';
+import { Lang, LangOverride, STR as UI_STRINGS, resolveLang, t } from './i18n';
 import { spawn, execFile, execFileSync, ChildProcessWithoutNullStreams } from 'child_process';
+
+let lang: Lang = 'es';
 
 let flutterProcess: ChildProcessWithoutNullStreams | undefined;
 let panel: vscode.WebviewPanel | undefined;
@@ -15,12 +18,16 @@ let saveListener: vscode.Disposable | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel('Flutter Phone Preview');
+  lang = resolveLang(
+    vscode.env.language,
+    vscode.workspace.getConfiguration('flutterPhonePreview').get<LangOverride>('language', 'auto')
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('flutterPhonePreview.start', () => startFlutter(context)),
     vscode.commands.registerCommand('flutterPhonePreview.stop', () => stopFlutter()),
-    vscode.commands.registerCommand('flutterPhonePreview.hotReload', () => sendToFlutter('r', 'Hot reload')),
-    vscode.commands.registerCommand('flutterPhonePreview.hotRestart', () => sendToFlutter('R', 'Hot restart')),
+    vscode.commands.registerCommand('flutterPhonePreview.hotReload', () => sendToFlutter('r', t(lang, 'host.hotReload'))),
+    vscode.commands.registerCommand('flutterPhonePreview.hotRestart', () => sendToFlutter('R', t(lang, 'host.hotRestart'))),
     vscode.commands.registerCommand('flutterPhonePreview.clearPreferences', () => clearSavedPrefs(context)),
     outputChannel
   );
@@ -29,7 +36,7 @@ export function activate(context: vscode.ExtensionContext) {
 function getWorkspaceFolder(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) {
-    vscode.window.showErrorMessage('Abre una carpeta con un proyecto Flutter primero.');
+    vscode.window.showErrorMessage(t(lang, 'host.openFolderFirst'));
     return undefined;
   }
   return folders[0].uri.fsPath;
@@ -156,21 +163,21 @@ function isPortInUse(port: number): Promise<boolean> {
 // resto de flutter/dart/node. Si lo ocupa otro programa, no lo toca.
 async function freePort(port: number): Promise<string> {
   if (process.platform !== 'win32') {
-    return 'Liberación automática solo disponible en Windows; libera el puerto manualmente.';
+    return t(lang, 'host.portManualWin');
   }
   const out = await execFileAsync('cmd', ['/c', `netstat -ano | findstr LISTENING | findstr :${port}`]);
   const m = out.match(/LISTENING\s+(\d+)/);
   if (!m) {
-    return `Ya no hay ningún proceso escuchando en el puerto ${port}. Reintenta iniciar.`;
+    return t(lang, 'host.portFreeNone', { port });
   }
   const pid = m[1];
   const tl = await execFileAsync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH']);
   const name = (tl.split(',')[0] || '').replace(/"/g, '').trim();
   if (!/dart|flutter|node/i.test(name)) {
-    return `El puerto ${port} lo ocupa "${name || 'un programa desconocido'}" (PID ${pid}); no lo mato automáticamente. Ciérralo manualmente o cambia el puerto en "flutterPhonePreview.port".`;
+    return t(lang, 'host.portForeign', { port, name: name || t(lang, 'host.unknownProgram'), pid });
   }
   await execFileAsync('taskkill', ['/pid', pid, '/T', '/F']);
-  return `Proceso ${name} (PID ${pid}) terminado; puerto ${port} liberado.`;
+  return t(lang, 'host.portFreed', { name, pid, port });
 }
 
 // Devuelve true si el puerto quedó libre (ya lo estaba o se liberó con el botón).
@@ -179,12 +186,12 @@ async function ensurePortFree(port: number): Promise<boolean> {
     return true;
   }
   const choice = await vscode.window.showErrorMessage(
-    `El puerto ${port} ya está en uso (probablemente quedó un "flutter run" anterior).`,
-    'Liberar puerto e iniciar',
-    'Detener vista previa',
-    'Cambiar puerto'
+    t(lang, 'host.portCheckTitle', { port }),
+    t(lang, 'host.actionFreePort'),
+    t(lang, 'host.actionStop'),
+    t(lang, 'host.actionChangePort')
   );
-  if (choice === 'Liberar puerto e iniciar') {
+  if (choice === t(lang, 'host.actionFreePort')) {
     const result = await freePort(port);
     if (await isPortInUse(port)) {
       vscode.window.showErrorMessage(result);
@@ -193,11 +200,11 @@ async function ensurePortFree(port: number): Promise<boolean> {
     vscode.window.showInformationMessage(result);
     return true;
   }
-  if (choice === 'Detener vista previa') {
+  if (choice === t(lang, 'host.actionStop')) {
     await vscode.commands.executeCommand('flutterPhonePreview.stop');
     return false;
   }
-  if (choice === 'Cambiar puerto') {
+  if (choice === t(lang, 'host.actionChangePort')) {
     await vscode.commands.executeCommand('workbench.action.openSettings', 'flutterPhonePreview.port');
     return false;
   }
@@ -206,7 +213,7 @@ async function ensurePortFree(port: number): Promise<boolean> {
 
 async function startFlutter(context: vscode.ExtensionContext) {
   if (flutterProcess) {
-    vscode.window.showInformationMessage('Flutter ya se está ejecutando.');
+    vscode.window.showInformationMessage(t(lang, 'host.alreadyRunning'));
     if (panel) {
       panel.reveal();
     }
@@ -231,7 +238,7 @@ async function startFlutter(context: vscode.ExtensionContext) {
             await editorConfig.update('enablePreview', true, vscode.ConfigurationTarget.Global);
         }
         catch {
-            outputChannel.appendLine('No se pudo activar workbench.editor.enablePreview automáticamente.');
+            outputChannel.appendLine(t(lang, 'host.enablePreviewFailed'));
         }
     }
   if (!(await ensurePortFree(port))) {
@@ -239,7 +246,7 @@ async function startFlutter(context: vscode.ExtensionContext) {
   }
 
   outputChannel.show(true);
-  outputChannel.appendLine(`Iniciando: flutter run -d web-server --web-port ${port}`);
+  outputChannel.appendLine(t(lang, 'host.starting', { port }));
 
   flutterProcess = spawn('flutter', ['run', '-d', 'web-server', '--web-port', String(port)], {
     cwd,
@@ -263,7 +270,7 @@ async function startFlutter(context: vscode.ExtensionContext) {
       return;
     }
     waiting = true;
-    outputChannel.appendLine('Servidor detectado, esperando a que la app termine de compilar...');
+    outputChannel.appendLine(t(lang, 'host.serverDetected'));
     waitForAppReady(baseUrl, 120000).then((ready) => {
       waiting = false;
       if (flutterProcess !== startingProcess || failed) {
@@ -271,17 +278,17 @@ async function startFlutter(context: vscode.ExtensionContext) {
       }
       if (!ready) {
         vscode.window.showWarningMessage(
-          `Flutter anunció el servidor, pero no terminó de servir la app en ${baseUrl}. Revisa la salida y vuelve a iniciar la vista previa.`
+          t(lang, 'host.notServedTimeout', { url: baseUrl })
         );
         return;
       } else {
-        outputChannel.appendLine('App compilada, abriendo panel…');
+        outputChannel.appendLine(t(lang, 'host.appCompiled'));
       }
       if (!opened) {
         opened = true;
         openPhonePanel(context, baseUrl, device).catch((error: Error) => {
           opened = false;
-          vscode.window.showErrorMessage(`No se pudo abrir la vista previa: ${error.message}`);
+          vscode.window.showErrorMessage(t(lang, 'host.openFailed', { error: error.message }));
         });
       }
     });
@@ -295,7 +302,7 @@ async function startFlutter(context: vscode.ExtensionContext) {
     if (/Failed to bind|Address already in use|errno = 10048/i.test(text)) {
       failed = true;
       vscode.window.showErrorMessage(
-        `El puerto ${port} ya está en uso. Ejecuta "Flutter: Detener vista previa en teléfono" para matar la instancia anterior, libera el puerto manualmente, o cambia el puerto en la configuración "flutterPhonePreview.port".`
+        t(lang, 'host.portBindFailed', { port })
       );
     }
 
@@ -329,17 +336,17 @@ async function startFlutter(context: vscode.ExtensionContext) {
   });
 
   flutterProcess.on('close', (code) => {
-    outputChannel.appendLine(`\nFlutter finalizó con código ${code}`);
+    outputChannel.appendLine(t(lang, 'host.flutterExited', { code: String(code) }));
     flutterProcess = undefined;
     disposeSaveListener();
     clearFallbackTimer();
     if (code !== 0 && !opened && !failed) {
-      vscode.window.showErrorMessage(`Flutter no pudo iniciar (código ${code}). Revisa el canal de salida "Flutter Phone Preview".`);
+      vscode.window.showErrorMessage(t(lang, 'host.flutterStartFail', { code: String(code) }));
     }
   });
 
   flutterProcess.on('error', (err) => {
-    vscode.window.showErrorMessage(`No se pudo iniciar flutter: ${err.message}`);
+    vscode.window.showErrorMessage(t(lang, 'host.flutterSpawnFail', { error: err.message }));
     flutterProcess = undefined;
     disposeSaveListener();
     clearFallbackTimer();
@@ -350,7 +357,7 @@ async function startFlutter(context: vscode.ExtensionContext) {
   clearFallbackTimer();
   fallbackTimer = setTimeout(() => {
     if (flutterProcess === startingProcess && !serverAnnounced && !failed) {
-      vscode.window.showWarningMessage('Flutter aún no anunció que la app esté disponible. Revisa el canal Flutter Phone Preview.');
+      vscode.window.showWarningMessage(t(lang, 'host.slowNoSignal'));
     }
   }, 180000);
 
@@ -358,7 +365,7 @@ async function startFlutter(context: vscode.ExtensionContext) {
     disposeSaveListener();
     saveListener = vscode.workspace.onDidSaveTextDocument((doc) => {
       if (doc.languageId === 'dart' && flutterProcess) {
-        sendToFlutter('r', 'Hot reload (auto al guardar)');
+        sendToFlutter('r', t(lang, 'host.hotReloadAuto'));
       }
     });
     context.subscriptions.push(saveListener);
@@ -410,8 +417,8 @@ function clearSavedPrefs(context: vscode.ExtensionContext) {
   }
   const key = prefsKeyForFolder(folder);
   void context.workspaceState.update(key, undefined).then(
-    () => vscode.window.showInformationMessage('Preferencias guardadas de la vista previa borradas. Recarga el panel para que la app arranque limpia.'),
-    (err) => vscode.window.showErrorMessage(`No se pudieron borrar las preferencias: ${String(err)}`)
+    () => vscode.window.showInformationMessage(t(lang, 'host.prefsCleared')),
+    (err) => vscode.window.showErrorMessage(t(lang, 'host.prefsClearFail', { error: String(err) }))
   );
 }
 
@@ -421,7 +428,7 @@ function stopFlutter() {
   clearFallbackTimer();
   if (flutterProcess) {
     killFlutterProcess();
-    vscode.window.showInformationMessage('Flutter detenido.');
+    vscode.window.showInformationMessage(t(lang, 'host.flutterStopped'));
   }
   disposeSaveListener();
   if (panel) {
@@ -433,9 +440,9 @@ function sendToFlutter(key: string, label: string) {
   if (flutterProcess && flutterProcess.stdin) {
     pendingRebuild = true;
     flutterProcess.stdin.write(key);
-    outputChannel.appendLine(`\n> ${label} enviado, esperando recompilación...`);
+    outputChannel.appendLine(t(lang, 'host.hotSent', { label }));
   } else {
-    vscode.window.showWarningMessage('Flutter no se está ejecutando.');
+    vscode.window.showWarningMessage(t(lang, 'host.notRunning'));
   }
 }
 
@@ -451,30 +458,31 @@ async function openPhonePanel(context: vscode.ExtensionContext, url: string, dev
   const persistPreferences = previewConfig.get<boolean>('persistPreferences', true);
   const saved = persistPreferences ? loadSavedPrefs(context) : { key: '', prefs: {} };
   if (persistPreferences && Object.keys(saved.prefs).length > 0) {
-    outputChannel.appendLine(`Preferencias restauradas: ${Object.keys(saved.prefs).length} clave(s) de la sesión anterior.`);
+    outputChannel.appendLine(t(lang, 'host.prefsRestored', { count: Object.keys(saved.prefs).length }));
   }
   const proxy = await startPreviewProxy(url, device, {
     enableRestProxy,
     persistPreferences,
+    lang,
     initialPrefs: saved.prefs,
     onPrefsChanged: async (prefs) => {
       try {
         await context.workspaceState.update(saved.key, prefs);
       } catch (err) {
-        outputChannel.appendLine(`No se pudieron guardar las preferencias: ${String(err)}`);
+        outputChannel.appendLine(t(lang, 'host.prefsSaveFail', { error: String(err) }));
       }
     }
   });
   outputChannel.appendLine(enableRestProxy
-    ? 'Proxy REST activo: las solicitudes HTTP/HTTPS de la app se envían desde la extensión.'
-    : 'Proxy REST desactivado: las solicitudes usan las reglas CORS del navegador.');
+    ? t(lang, 'host.restProxyOn')
+    : t(lang, 'host.restProxyOff'));
   if (!flutterProcess) { proxy.dispose(); return; }
   previewProxy?.dispose();
   previewProxy = proxy;
   url = proxy.url;
   panel = vscode.window.createWebviewPanel(
     'flutterPhonePreview',
-    'Flutter — Vista de Teléfono',
+    t(lang, 'host.panelTitle'),
     { viewColumn: vscode.ViewColumn.Two, preserveFocus: true },
     {
       enableScripts: true,
@@ -490,18 +498,18 @@ async function openPhonePanel(context: vscode.ExtensionContext, url: string, dev
       if (msg.command === 'webviewReady') {
         panel?.webview.postMessage({ command: 'loadApp', url });
       } else if (msg.command === 'previewTimeout') {
-        outputChannel.appendLine('El iframe no terminó de cargar en 60 segundos. No se reinicia para no interrumpir Flutter.');
+        outputChannel.appendLine(t(lang, 'host.iframeTimeout'));
       }
       else if (msg.command === 'previewRuntimeError' && msg.token === proxy.token) {
             const kind = typeof msg.kind === 'string' ? msg.kind : 'runtime';
-            const detail = typeof msg.message === 'string' ? msg.message : 'Error desconocido';
+            const detail = typeof msg.message === 'string' ? msg.message : t(lang, 'panel.errorUnknown');
             outputChannel.appendLine(`[App ${kind}] ${detail}`);
             if (typeof msg.stack === 'string' && msg.stack.trim()) {
                 outputChannel.appendLine(msg.stack);
             }
         }
         else if (msg.command === 'webviewRuntimeError') {
-            const detail = typeof msg.message === 'string' ? msg.message : 'Error desconocido en el panel';
+            const detail = typeof msg.message === 'string' ? msg.message : t(lang, 'panel.errorPanel');
             outputChannel.appendLine(`[Panel] ${detail}`);
             if (typeof msg.stack === 'string' && msg.stack.trim()) {
                 outputChannel.appendLine(msg.stack);
@@ -930,34 +938,34 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
 </style>
 </head>
 <body>
-  <section class="toolbar" aria-label="Controles de la vista previa">
+  <section class="toolbar" aria-label="${t(lang, 'panel.toolbarLabel')}">
     <div class="device-picker">
-      <label class="field-label" for="deviceSelect">Dispositivo</label>
+      <label class="field-label" for="deviceSelect">${t(lang, 'panel.deviceLabel')}</label>
       <div class="select-wrap">
-        <select id="deviceSelect" title="Modelo de teléfono"></select>
+        <select id="deviceSelect" title="${t(lang, 'panel.deviceTitle')}"></select>
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
       </div>
     </div>
     <div class="view-actions">
-      <div class="zoom-group" role="group" aria-label="Zoom">
-        <button id="zoomOut" title="Alejar" aria-label="Alejar"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
-        <button id="zoomResetBtn" title="Restablecer zoom" aria-label="Restablecer zoom"><span id="zoomLabel">100%</span></button>
-        <button id="zoomIn" title="Acercar" aria-label="Acercar"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></button>
+      <div class="zoom-group" role="group" aria-label="${t(lang, 'panel.zoomGroup')}">
+        <button id="zoomOut" title="${t(lang, 'panel.zoomOut')}" aria-label="${t(lang, 'panel.zoomOut')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+        <button id="zoomResetBtn" title="${t(lang, 'panel.zoomReset')}" aria-label="${t(lang, 'panel.zoomReset')}"><span id="zoomLabel">100%</span></button>
+        <button id="zoomIn" title="${t(lang, 'panel.zoomIn')}" aria-label="${t(lang, 'panel.zoomIn')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></button>
       </div>
-      <button id="fitBtn" title="Ajustar a la pantalla" aria-label="Ajustar a la pantalla"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg><span class="btn-text">Ajustar</span></button>
-      <button id="rotateBtn" title="Rotar (vertical / horizontal)" aria-label="Rotar pantalla" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="6" width="8" height="12" rx="2" transform="rotate(30 12 12)"/><path d="M4 9a9 9 0 0 1 14-5l2 2m0-4v4h-4M20 15a9 9 0 0 1-14 5l-2-2m0 4v-4h4"/></svg><span class="btn-text">Rotar</span></button>
-      <button id="reloadBtn" class="primary" title="Recargar app" aria-label="Recargar app"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"/></svg><span>Recargar</span></button>
+      <button id="fitBtn" title="${t(lang, 'panel.fit')}" aria-label="${t(lang, 'panel.fit')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg><span class="btn-text">${t(lang, 'panel.fitShort')}</span></button>
+      <button id="rotateBtn" title="${t(lang, 'panel.rotate')}" aria-label="${t(lang, 'panel.rotateScreen')}" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="6" width="8" height="12" rx="2" transform="rotate(30 12 12)"/><path d="M4 9a9 9 0 0 1 14-5l2 2m0-4v4h-4M20 15a9 9 0 0 1-14 5l-2-2m0 4v-4h4"/></svg><span class="btn-text">${t(lang, 'panel.rotateShort')}</span></button>
+      <button id="reloadBtn" class="primary" title="${t(lang, 'panel.reload')}" aria-label="${t(lang, 'panel.reload')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"/></svg><span>${t(lang, 'panel.reloadShort')}</span></button>
     </div>
   </section>
-  <main class="stage" id="stage" aria-label="Vista previa de la app">
+  <main class="stage" id="stage" aria-label="${t(lang, 'panel.stageLabel')}">
     <div class="phone-viewport" id="phoneViewport">
     <div class="phone" id="phone">
       <div class="notch" id="notchEl"></div>
       <div class="punch" id="punchEl"></div>
       <div class="homebtn" id="homeBtnEl"></div>
       <div class="screen">
-        <iframe id="preview" title="Aplicación Flutter" data-url="${url}"></iframe>
-        ${keyboardMarkup}
+        <iframe id="preview" title="${t(lang, 'panel.iframeTitle')}" data-url="${url}"></iframe>
+        ${getKeyboardMarkup(lang)}
         <div class="statusbar" id="statusBar" aria-hidden="true">
           <span id="clockEl">--:--</span>
           <span class="status-icons">
@@ -966,12 +974,12 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
             <span class="batt"><span class="batt-fill" id="battFill"></span></span>
           </span>
         </div>
-        <div class="loading" id="loadingEl"><div class="spinner" aria-hidden="true"></div><span id="loadingText">Cargando app…</span><span class="loading-detail">Preparando tu vista previa</span></div>
+        <div class="loading" id="loadingEl"><div class="spinner" aria-hidden="true"></div><span id="loadingText">${t(lang, 'panel.loadingApp')}</span><span class="loading-detail">${t(lang, 'panel.loadingDetail')}</span></div>
         <div class="preview-error" id="previewError" role="alert" hidden>
-          <div class="preview-error-title">La aplicación encontró un error</div>
-          <pre class="preview-error-text" id="previewErrorText">No se pudo obtener más información.</pre>
+          <div class="preview-error-title">${t(lang, 'panel.errorTitle')}</div>
+          <pre class="preview-error-text" id="previewErrorText">${t(lang, 'panel.errorNoInfo')}</pre>
           <div class="preview-error-actions">
-            <button type="button" id="previewErrorReload">Recargar app</button>
+            <button type="button" id="previewErrorReload">${t(lang, 'panel.errorReload')}</button>
           </div>
         </div>
       </div>
@@ -979,16 +987,17 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
     </div>
   </main>
   <footer class="preview-footer">
-    <span class="preview-status" id="previewStatus" data-state="loading" role="status"><span class="status-dot" aria-hidden="true"></span><span id="statusText">Preparando vista</span></span>
+    <span class="preview-status" id="previewStatus" data-state="loading" role="status"><span class="status-dot" aria-hidden="true"></span><span id="statusText">${t(lang, 'panel.statusPreparing')}</span></span>
     <span id="deviceDetails"></span>
-    <span class="zoom-hint">Ctrl + rueda para zoom</span>
+    <span class="zoom-hint">${t(lang, 'panel.zoomHint')}</span>
   </footer>
   <script>
     const vscode = acquireVsCodeApi();
+    const STR = ${JSON.stringify(UI_STRINGS[lang])};
     window.addEventListener('error', event => {
       vscode.postMessage({
         command: 'webviewRuntimeError',
-        message: event.message || 'Error desconocido en el panel',
+        message: event.message || STR['panel.errorPanel'],
         stack: event.error && event.error.stack ? event.error.stack : ''
       });
     });
@@ -996,7 +1005,7 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
       const reason = event.reason;
       vscode.postMessage({
         command: 'webviewRuntimeError',
-        message: reason && reason.message ? reason.message : String(reason || 'Promesa rechazada'),
+        message: reason && reason.message ? reason.message : String(reason || STR['panel.errorRejected']),
         stack: reason && reason.stack ? reason.stack : ''
       });
     });
@@ -1035,7 +1044,7 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
     DEVICES.forEach(d => {
       const opt = document.createElement('option');
       opt.value = d.id;
-      opt.textContent = d.name;
+      opt.textContent = d.name + ' (' + STR['device.' + d.id] + ')';
       if (d.id === currentDevice.id) opt.selected = true;
       select.appendChild(opt);
     });
@@ -1065,7 +1074,7 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
       preview.style.height = 'calc(100% - ' + contentTop + 'px)';
       layoutKeyboard();
 
-      document.getElementById('deviceDetails').textContent = w + ' × ' + h + ' · ' + (rotated ? 'Horizontal' : 'Vertical');
+      document.getElementById('deviceDetails').textContent = w + ' × ' + h + ' · ' + (rotated ? STR['panel.landscape'] : STR['panel.portrait']);
       document.getElementById('rotateBtn').setAttribute('aria-pressed', String(rotated));
 
       refit();
@@ -1151,10 +1160,10 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
 
     function showPreviewError(kind, message, stack) {
       const detail = [message, stack].filter(value => typeof value === 'string' && value.trim()).join('\\n\\n');
-      previewErrorText.textContent = detail || 'No se pudo obtener más información.';
+      previewErrorText.textContent = detail || STR['panel.errorNoInfo'];
       previewError.hidden = false;
       hideLoading();
-      setPreviewStatus('Error en la app', 'error');
+      setPreviewStatus(STR['panel.statusError'], 'error');
     }
 
     function hideLoading() {
@@ -1167,8 +1176,8 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
       clearTimeout(loadTimer);
       navigationStarted = true;
       navigationId++;
-      setPreviewStatus('Cargando vista', 'loading');
-      loadingText.textContent = 'Cargando app…';
+      setPreviewStatus(STR['panel.statusLoading'], 'loading');
+      loadingText.textContent = STR['panel.loadingApp'];
       loadingEl.classList.remove('hidden');
       const target = new URL(url);
       target.searchParams.set('_previewDevice', currentDevice.id);
@@ -1178,7 +1187,7 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
       // El overlay tampoco debe ocultar indefinidamente una app ya dibujada.
       loadTimer = setTimeout(() => {
         hideLoading();
-        setPreviewStatus('La carga está tardando', 'slow');
+        setPreviewStatus(STR['panel.statusSlow'], 'slow');
         vscode.postMessage({ command: 'previewTimeout' });
       }, 60000);
     }
@@ -1196,10 +1205,10 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
       // load solo confirma el documento: Flutter puede seguir arrancando.
       // Quitamos nuestra cubierta y dejamos que el motor termine sin recargas.
       hideLoading();
-      setPreviewStatus('Vista abierta', 'ready');
+      setPreviewStatus(STR['panel.statusOpen'], 'ready');
     });
     preview.addEventListener('error', () => {
-      showPreviewError('iframe', 'No se pudo cargar el documento de la aplicación.');
+      showPreviewError('iframe', STR['panel.errorDocument']);
     });
 
     // Barra de estado: hora en vivo + iconos de señal, wifi y batería.
@@ -1232,7 +1241,7 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
       if (event.source === preview.contentWindow) {
         if (msg.source === 'phone-preview-runtime-error' && msg.token === ${JSON.stringify(keyboardToken)}) {
           showPreviewError(msg.kind || 'runtime', msg.message, msg.stack);
-          vscode.postMessage({command: 'previewRuntimeError', token: msg.token, kind: msg.kind || 'runtime', message: msg.message || 'Error desconocido', stack: msg.stack || ''});
+          vscode.postMessage({command: 'previewRuntimeError', token: msg.token, kind: msg.kind || 'runtime', message: msg.message || STR['panel.errorUnknown'], stack: msg.stack || ''});
         }
         return;
       }
@@ -1262,7 +1271,7 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
       });
     }
 
-    ${getVirtualKeyboardScript(keyboardToken)}
+    ${getVirtualKeyboardScript(keyboardToken, lang)}
     applyDevice();
 
     // Avisa a la extensión que el JS del webview está listo y puede enviar

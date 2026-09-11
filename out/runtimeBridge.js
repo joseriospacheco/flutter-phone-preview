@@ -1,7 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getRuntimeBridge = getRuntimeBridge;
-function getRuntimeBridge(token) {
+const i18n_1 = require("./i18n");
+function getRuntimeBridge(token, lang = 'es') {
     return String.raw `(() => {
     const token = ${JSON.stringify(token)};
     let parentOrigin = '*';
@@ -12,8 +13,9 @@ function getRuntimeBridge(token) {
 
     let lastRuntimeError = '';
     let lastRuntimeErrorAt = 0;
+    const fallbackMessage = ${JSON.stringify((0, i18n_1.t)(lang, 'runtime.unknownAppError'))};
     function reportRuntimeError(kind, value, stack) {
-      const message = String(value || 'Error desconocido en la aplicación').slice(0, 4000);
+      const message = String(value || fallbackMessage).slice(0, 4000);
       const now = Date.now();
       if (message === lastRuntimeError && now - lastRuntimeErrorAt < 1000) return;
       lastRuntimeError = message;

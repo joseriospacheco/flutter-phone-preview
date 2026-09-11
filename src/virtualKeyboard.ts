@@ -1,3 +1,5 @@
+import { Lang, t } from './i18n';
+
 export const keyboardStyles = String.raw`
   .virtual-keyboard {
     position: absolute; inset: auto 0 0; z-index: 6;
@@ -31,21 +33,54 @@ export const keyboardStyles = String.raw`
   .virtual-keyboard[data-landscape="true"] .vk-rows { gap: 3px; }
 `;
 
-export const keyboardMarkup = `<section class="virtual-keyboard" id="virtualKeyboard" aria-label="Teclado virtual" hidden>
-  <div class="vk-caption"><span id="keyboardTypeLabel">Texto</span><button type="button" id="keyboardDone" aria-label="Confirmar entrada">Listo</button><button type="button" id="keyboardHide" aria-label="Ocultar teclado" title="Ocultar teclado">⌄</button></div>
+export function getKeyboardMarkup(lang: Lang = 'es'): string {
+  return `<section class="virtual-keyboard" id="virtualKeyboard" aria-label="${t(lang, 'keyboard.label')}" hidden>
+  <div class="vk-caption"><span id="keyboardTypeLabel">${t(lang, 'keyboard.text')}</span><button type="button" id="keyboardDone" aria-label="${t(lang, 'keyboard.confirm')}">${t(lang, 'keyboard.done')}</button><button type="button" id="keyboardHide" aria-label="${t(lang, 'keyboard.hide')}" title="${t(lang, 'keyboard.hide')}">⌄</button></div>
   <div class="vk-rows" id="keyboardRows"></div>
 </section>`;
+}
+
+// Kept for compatibility; new code should use getKeyboardMarkup(lang).
+export const keyboardMarkup = getKeyboardMarkup();
 
 // Shares only the iframe reference and phone layout with the webview script.
-export function getVirtualKeyboardScript(token: string): string {
+export function getVirtualKeyboardScript(token: string, lang: Lang = 'es'): string {
+  const kb = {
+    done: t(lang, 'keyboard.done'),
+    text: t(lang, 'keyboard.text'),
+    multiline: t(lang, 'keyboard.multiline'),
+    space: t(lang, 'keyboard.space'),
+    shift: t(lang, 'keyboard.shift'),
+    backspace: t(lang, 'keyboard.backspace'),
+    showLetters: t(lang, 'keyboard.showLetters'),
+    showSymbols: t(lang, 'keyboard.showSymbols'),
+    actions: {
+      enter: t(lang, 'keyboard.action.enter'),
+      done: t(lang, 'keyboard.action.done'),
+      next: t(lang, 'keyboard.action.next'),
+      previous: t(lang, 'keyboard.action.previous'),
+      search: t(lang, 'keyboard.action.search'),
+      send: t(lang, 'keyboard.action.send'),
+      go: t(lang, 'keyboard.action.go')
+    },
+    modes: {
+      numeric: t(lang, 'keyboard.mode.numeric'),
+      decimal: t(lang, 'keyboard.mode.decimal'),
+      tel: t(lang, 'keyboard.mode.tel'),
+      email: t(lang, 'keyboard.mode.email'),
+      url: t(lang, 'keyboard.mode.url'),
+      search: t(lang, 'keyboard.mode.search')
+    }
+  };
   return String.raw`
     const keyboardToken = ${JSON.stringify(token)};
+    const keyboardStrings = ${JSON.stringify(kb)};
     const virtualKeyboard = document.getElementById('virtualKeyboard');
     const keyboardRows = document.getElementById('keyboardRows');
     let keyboardState = { visible: false, fieldId: -1, mode: 'text', action: 'done', multiline: false };
     let shifted = false;
     let symbols = false;
-    const actionLabels = { enter: 'Intro', done: 'Listo', next: 'Siguiente', previous: 'Anterior', search: 'Buscar', send: 'Enviar', go: 'Ir' };
+    const actionLabels = keyboardStrings.actions;
     function layoutKeyboard() {
       const screen = phone.querySelector('.screen');
       const inset = parseFloat(preview.style.top) || 0;
@@ -67,17 +102,17 @@ export function getVirtualKeyboardScript(token: string): string {
     function renderKeyboard() {
       const mode = keyboardState.mode;
       const numeric = ['numeric', 'decimal', 'tel'].includes(mode);
-      const labels = { numeric: 'Números', decimal: 'Decimales', tel: 'Teléfono', email: 'Correo electrónico', url: 'Dirección web', search: 'Búsqueda' };
-      document.getElementById('keyboardTypeLabel').textContent = labels[mode] || (keyboardState.multiline ? 'Texto multilínea' : 'Texto');
-      document.getElementById('keyboardDone').textContent = actionLabels[keyboardState.action] || 'Listo';
+      const labels = { numeric: keyboardStrings.modes.numeric, decimal: keyboardStrings.modes.decimal, tel: keyboardStrings.modes.tel, email: keyboardStrings.modes.email, url: keyboardStrings.modes.url, search: keyboardStrings.modes.search };
+      document.getElementById('keyboardTypeLabel').textContent = labels[mode] || (keyboardState.multiline ? keyboardStrings.multiline : keyboardStrings.text);
+      document.getElementById('keyboardDone').textContent = actionLabels[keyboardState.action] || keyboardStrings.done;
       keyboardRows.replaceChildren();
       function row(keys) {
         const element = document.createElement('div'); element.className = 'vk-row';
         for (const key of keys) {
           const button = document.createElement('button'); button.type = 'button';
-          const special = { shift: shifted ? '⇧' : '⇧', backspace: '⌫', symbols: symbols ? 'ABC' : '123', space: 'espacio', enter: actionLabels[keyboardState.action] || 'Listo' };
+          const special = { shift: shifted ? '⇧' : '⇧', backspace: '⌫', symbols: symbols ? 'ABC' : '123', space: keyboardStrings.space, enter: actionLabels[keyboardState.action] || keyboardStrings.done };
           button.textContent = special[key] || key;
-          const names = { shift: 'Mayúsculas', backspace: 'Borrar', symbols: symbols ? 'Mostrar letras' : 'Mostrar símbolos', space: 'Espacio', enter: actionLabels[keyboardState.action] || 'Listo' };
+          const names = { shift: keyboardStrings.shift, backspace: keyboardStrings.backspace, symbols: symbols ? keyboardStrings.showLetters : keyboardStrings.showSymbols, space: keyboardStrings.space, enter: actionLabels[keyboardState.action] || keyboardStrings.done };
           button.setAttribute('aria-label', names[key] || key);
           if (special[key]) button.className = 'vk-special vk-wide';
           if (key === 'space') button.className = 'vk-space';

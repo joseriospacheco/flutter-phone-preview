@@ -1,4 +1,6 @@
-export function getRuntimeBridge(token: string): string {
+import { Lang, t } from './i18n';
+
+export function getRuntimeBridge(token: string, lang: Lang = 'es'): string {
   return String.raw`(() => {
     const token = ${JSON.stringify(token)};
     let parentOrigin = '*';
@@ -9,8 +11,9 @@ export function getRuntimeBridge(token: string): string {
 
     let lastRuntimeError = '';
     let lastRuntimeErrorAt = 0;
+    const fallbackMessage = ${JSON.stringify(t(lang, 'runtime.unknownAppError'))};
     function reportRuntimeError(kind, value, stack) {
-      const message = String(value || 'Error desconocido en la aplicación').slice(0, 4000);
+      const message = String(value || fallbackMessage).slice(0, 4000);
       const now = Date.now();
       if (message === lastRuntimeError && now - lastRuntimeErrorAt < 1000) return;
       lastRuntimeError = message;
