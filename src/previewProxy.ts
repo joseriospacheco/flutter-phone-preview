@@ -3,6 +3,7 @@ import * as net from 'net';
 import { randomBytes } from 'crypto';
 import { gunzipSync, inflateSync, brotliDecompressSync } from 'zlib';
 import { getKeyboardBridge } from './keyboardBridge';
+import { getPrefsBridge, PREFS_MAX_VALUE_BYTES } from './prefsBridge';
 import { getRestBridge } from './restBridge';
 import { getRuntimeBridge } from './runtimeBridge';
 import { proxyRestRequest } from './restProxy';
@@ -11,11 +12,31 @@ export interface PreviewProxy {
   url: string;
   token: string;
   dispose(): void;
+  flushPrefs(): Promise<void>;
 }
 
 // Inject only the local preview response. The user's Flutter files are untouched.
 export interface PreviewProxyOptions {
   enableRestProxy?: boolean;
+  persistPreferences?: boolean;
+  initialPrefs?: Record<string, string>;
+  onPrefsChanged?: (prefs: Record<string, string>) => Promise<void> | void;
+}
+
+export const PREFS_MAX_KEYS = 2000;
+const PREFS_SAVE_DEBOUNCE_MS = 500;
+const PREFS_MAX_BODY_BYTES = 256 * 1024;
+
+function sanitizePrefs(input: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return out;
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof value === 'string' && value.length <= PREFS_MAX_VALUE_BYTES) {
+      out[key] = value;
+    }
+    if (Object.keys(out).length >= PREFS_MAX_KEYS) break;
+  }
+  return out;
 }
 
 export async function startPreviewProxy(upstreamUrl: string, device: string, options: PreviewProxyOptions = {}): Promise<PreviewProxy> {
@@ -23,7 +44,50 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
   const token = randomBytes(24).toString('hex');
   const bridgePath = `/__phone_preview_${token}.js`;
   const restPath = '/__phone_preview_rest_' + token;
+  const prefsPath = '/__phone_preview_prefs_' + token;
   const enableRestProxy = options.enableRestProxy !== false;
+  const persistPreferences = options.persistPreferences !== false;
+  const prefs = sanitizePrefs(options.initialPrefs);
+  let prefsDirty = false;
+  let prefsTimer: NodeJS.Timeout | undefined;
+  let prefsSaveChain: Promise<void> = Promise.resolve();
+  const onPrefsChanged = options.onPrefsChanged;
+  function savePrefsNow(): Promise<void> {
+    if (!prefsDirty || !onPrefsChanged) {
+      prefsDirty = false;
+      return Promise.resolve();
+    }
+    prefsDirty = false;
+    const snapshot = { ...prefs };
+    prefsSaveChain = prefsSaveChain.then(
+      () => onPrefsChanged(snapshot),
+      () => onPrefsChanged(snapshot)
+    ).then(
+      () => undefined,
+      () => undefined // best-effort: nunca se interrumpe el preview por esto
+    );
+    return prefsSaveChain;
+  }
+  function schedulePrefsSave() {
+    prefsDirty = true;
+    if (prefsTimer || !onPrefsChanged) return;
+    prefsTimer = setTimeout(() => {
+      prefsTimer = undefined;
+      void savePrefsNow();
+    }, PREFS_SAVE_DEBOUNCE_MS);
+  }
+  async function flushPrefs(): Promise<void> {
+    if (prefsTimer) {
+      clearTimeout(prefsTimer);
+      prefsTimer = undefined;
+    }
+    // Bucle porque pueden llegar POSTs tardíos mientras se guarda.
+    for (let i = 0; i < 10; i++) {
+      await savePrefsNow();
+      await prefsSaveChain;
+      if (!prefsDirty) break;
+    }
+  }
   const sockets = new Set<net.Socket>();
   let proxyOrigin = '';
   const server = http.createServer((req, res) => {
@@ -31,7 +95,60 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
     if (requestUrl.pathname === bridgePath) {
       const selectedDevice = requestUrl.searchParams.get('device') || device;
       res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-      res.end((enableRestProxy ? getRestBridge(restPath) : '') + '\n' + getRuntimeBridge(token) + '\n' + getKeyboardBridge(token, selectedDevice));
+      res.end(
+        (enableRestProxy ? getRestBridge(restPath) : '') + '\n' +
+        (persistPreferences ? getPrefsBridge(JSON.stringify(prefs), prefsPath) : '') + '\n' +
+        getRuntimeBridge(token) + '\n' +
+        getKeyboardBridge(token, selectedDevice)
+      );
+      return;
+    }
+    if (requestUrl.pathname.startsWith('/__phone_preview_prefs_')) {
+      if (!persistPreferences || requestUrl.pathname !== prefsPath || req.method !== 'POST') {
+        res.writeHead(404);
+        res.end('Preferencias no disponibles.');
+        return;
+      }
+      const chunks: Buffer[] = [];
+      let size = 0;
+      let aborted = false;
+      req.on('data', (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > PREFS_MAX_BODY_BYTES) {
+          aborted = true;
+          res.writeHead(413);
+          res.end('Cuerpo demasiado grande.');
+          req.destroy();
+          return;
+        }
+        chunks.push(chunk);
+      });
+      req.on('error', () => { if (!res.headersSent) { res.writeHead(400); res.end(); } });
+      req.on('end', () => {
+        if (aborted) return;
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+            op?: unknown; key?: unknown; value?: unknown;
+          };
+          if (body.op === 'set' && typeof body.key === 'string' && typeof body.value === 'string') {
+            if (body.value.length <= PREFS_MAX_VALUE_BYTES &&
+                (body.key in prefs || Object.keys(prefs).length < PREFS_MAX_KEYS)) {
+              prefs[body.key] = body.value;
+              schedulePrefsSave();
+            }
+          } else if (body.op === 'remove' && typeof body.key === 'string') {
+            if (delete prefs[body.key]) schedulePrefsSave();
+          } else if (body.op === 'clearAll') {
+            for (const key of Object.keys(prefs)) delete prefs[key];
+            schedulePrefsSave();
+          }
+          res.writeHead(204);
+          res.end();
+        } catch {
+          res.writeHead(400);
+          res.end('Cuerpo inválido.');
+        }
+      });
       return;
     }
     if (requestUrl.pathname.startsWith('/__phone_preview_rest_')) {
@@ -126,6 +243,13 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
   proxyOrigin = `http://127.0.0.1:${port}`;
   return {
     url: proxyOrigin, token,
-    dispose() { server.close(); for (const socket of sockets) socket.destroy(); }
+    flushPrefs,
+    dispose() {
+      // En apagado el host puede no esperar: se dispara el flush y
+      // deactivate() lo espera explícitamente con flushPrefs().
+      void flushPrefs();
+      server.close();
+      for (const socket of sockets) socket.destroy();
+    }
   };
 }

@@ -21,6 +21,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('flutterPhonePreview.stop', () => stopFlutter()),
     vscode.commands.registerCommand('flutterPhonePreview.hotReload', () => sendToFlutter('r', 'Hot reload')),
     vscode.commands.registerCommand('flutterPhonePreview.hotRestart', () => sendToFlutter('R', 'Hot restart')),
+    vscode.commands.registerCommand('flutterPhonePreview.clearPreferences', () => clearSavedPrefs(context)),
     outputChannel
   );
 }
@@ -378,6 +379,42 @@ function clearFallbackTimer() {
   }
 }
 
+// Preferencias persistentes (shared_preferences): se guardan por proyecto en
+// workspaceState porque el proxy usa un puerto aleatorio en cada arranque y
+// el localStorage del iframe no sobrevive entre sesiones.
+function prefsKeyForFolder(folder: string): string {
+  let hash = 5381;
+  for (let i = 0; i < folder.length; i++) {
+    hash = ((hash << 5) + hash + folder.charCodeAt(i)) >>> 0;
+  }
+  return `phonePreview.prefs.${hash.toString(16)}`;
+}
+
+function loadSavedPrefs(context: vscode.ExtensionContext): { key: string; prefs: Record<string, string> } {
+  const folder = getWorkspaceFolder() || 'default';
+  const key = prefsKeyForFolder(folder);
+  const stored = context.workspaceState.get<Record<string, string>>(key);
+  const prefs: Record<string, string> = {};
+  if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+    for (const [k, v] of Object.entries(stored)) {
+      if (typeof v === 'string') prefs[k] = v;
+    }
+  }
+  return { key, prefs };
+}
+
+function clearSavedPrefs(context: vscode.ExtensionContext) {
+  const folder = getWorkspaceFolder();
+  if (!folder) {
+    return;
+  }
+  const key = prefsKeyForFolder(folder);
+  void context.workspaceState.update(key, undefined).then(
+    () => vscode.window.showInformationMessage('Preferencias guardadas de la vista previa borradas. Recarga el panel para que la app arranque limpia.'),
+    (err) => vscode.window.showErrorMessage(`No se pudieron borrar las preferencias: ${String(err)}`)
+  );
+}
+
 function stopFlutter() {
   previewProxy?.dispose();
   previewProxy = undefined;
@@ -409,8 +446,25 @@ function refreshPanelFrame() {
 }
 
 async function openPhonePanel(context: vscode.ExtensionContext, url: string, device: string) {
-  const enableRestProxy = vscode.workspace.getConfiguration('flutterPhonePreview').get<boolean>('enableRestProxy', true);
-  const proxy = await startPreviewProxy(url, device, { enableRestProxy });
+  const previewConfig = vscode.workspace.getConfiguration('flutterPhonePreview');
+  const enableRestProxy = previewConfig.get<boolean>('enableRestProxy', true);
+  const persistPreferences = previewConfig.get<boolean>('persistPreferences', true);
+  const saved = persistPreferences ? loadSavedPrefs(context) : { key: '', prefs: {} };
+  if (persistPreferences && Object.keys(saved.prefs).length > 0) {
+    outputChannel.appendLine(`Preferencias restauradas: ${Object.keys(saved.prefs).length} clave(s) de la sesión anterior.`);
+  }
+  const proxy = await startPreviewProxy(url, device, {
+    enableRestProxy,
+    persistPreferences,
+    initialPrefs: saved.prefs,
+    onPrefsChanged: async (prefs) => {
+      try {
+        await context.workspaceState.update(saved.key, prefs);
+      } catch (err) {
+        outputChannel.appendLine(`No se pudieron guardar las preferencias: ${String(err)}`);
+      }
+    }
+  });
   outputChannel.appendLine(enableRestProxy
     ? 'Proxy REST activo: las solicitudes HTTP/HTTPS de la app se envían desde la extensión.'
     : 'Proxy REST desactivado: las solicitudes usan las reglas CORS del navegador.');
@@ -1219,7 +1273,14 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
 </html>`;
 }
 
-export function deactivate() {
+export async function deactivate(): Promise<void> {
+  // Espera el guardado de preferencias ANTES de matar procesos: VS Code
+  // aguarda un deactivate prometido, así el disco queda escrito al cerrar.
+  try {
+    await previewProxy?.flushPrefs();
+  } catch {
+    // best-effort
+  }
   previewProxy?.dispose();
   previewProxy = undefined;
   clearFallbackTimer();

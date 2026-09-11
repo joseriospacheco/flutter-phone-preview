@@ -100,7 +100,17 @@ Open VS Code Settings and search for **Flutter Phone Preview**. You can change:
 - **Port:** the port used to run the app. The default is `5001`.
 - **Device:** the device shown when the preview opens.
 - **Enable Rest Proxy:** allow REST calls through the local preview proxy (enabled by default).
+- **Persist Preferences:** keep the app's `shared_preferences` values between preview restarts, stored per project (enabled by default).
 - **Auto Reload On Save:** enable or disable reloads when `.dart` files are saved.
+
+## Persistent preferences
+
+The preview proxy listens on a random port on every start, so the browser
+`localStorage` used by the `shared_preferences` package would look empty on
+every restart. The extension mirrors those values and restores them before
+your app boots, with no changes needed in your Flutter code. Use
+**Flutter: Clear Saved Preview Preferences** from the command palette to wipe
+them and start clean.
 
 ## If the app does not appear
 

@@ -17,7 +17,8 @@
     "onCommand:flutterPhonePreview.start",
     "onCommand:flutterPhonePreview.stop",
     "onCommand:flutterPhonePreview.hotReload",
-    "onCommand:flutterPhonePreview.hotRestart"
+    "onCommand:flutterPhonePreview.hotRestart",
+    "onCommand:flutterPhonePreview.clearPreferences"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -37,6 +38,10 @@
       {
         "command": "flutterPhonePreview.hotRestart",
         "title": "Flutter: Hot restart (vista previa en teléfono)"
+      },
+      {
+        "command": "flutterPhonePreview.clearPreferences",
+        "title": "Flutter: Borrar preferencias guardadas (vista previa en teléfono)"
       }
     ],
     "configuration": {
@@ -73,6 +78,11 @@
           "type": "boolean",
           "default": true,
           "description": "Permite consumir APIs REST HTTP/HTTPS desde la vista previa sin bloqueos CORS mediante un proxy local. Compatible con fetch y XMLHttpRequest (http/Dio). Usa autenticación por encabezados; no comparte cookies con las APIs. Reinicia la vista previa al cambiar esta opción."
+        },
+        "flutterPhonePreview.persistPreferences": {
+          "type": "boolean",
+          "default": true,
+          "description": "Conserva los valores de shared_preferences de la app entre reinicios de la vista previa (se guardan por proyecto). Reinicia la vista previa al cambiar esta opción."
         },
         "flutterPhonePreview.autoReloadOnSave": {
           "type": "boolean",

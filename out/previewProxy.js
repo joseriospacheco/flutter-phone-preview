@@ -1,20 +1,78 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.PREFS_MAX_KEYS = void 0;
 exports.startPreviewProxy = startPreviewProxy;
 const http = require("http");
 const net = require("net");
 const crypto_1 = require("crypto");
 const zlib_1 = require("zlib");
 const keyboardBridge_1 = require("./keyboardBridge");
+const prefsBridge_1 = require("./prefsBridge");
 const restBridge_1 = require("./restBridge");
 const runtimeBridge_1 = require("./runtimeBridge");
 const restProxy_1 = require("./restProxy");
+exports.PREFS_MAX_KEYS = 2000;
+const PREFS_SAVE_DEBOUNCE_MS = 500;
+const PREFS_MAX_BODY_BYTES = 256 * 1024;
+function sanitizePrefs(input) {
+    const out = {};
+    if (!input || typeof input !== 'object' || Array.isArray(input))
+        return out;
+    for (const [key, value] of Object.entries(input)) {
+        if (typeof value === 'string' && value.length <= prefsBridge_1.PREFS_MAX_VALUE_BYTES) {
+            out[key] = value;
+        }
+        if (Object.keys(out).length >= exports.PREFS_MAX_KEYS)
+            break;
+    }
+    return out;
+}
 async function startPreviewProxy(upstreamUrl, device, options = {}) {
     const upstream = new URL(upstreamUrl);
     const token = (0, crypto_1.randomBytes)(24).toString('hex');
     const bridgePath = `/__phone_preview_${token}.js`;
     const restPath = '/__phone_preview_rest_' + token;
+    const prefsPath = '/__phone_preview_prefs_' + token;
     const enableRestProxy = options.enableRestProxy !== false;
+    const persistPreferences = options.persistPreferences !== false;
+    const prefs = sanitizePrefs(options.initialPrefs);
+    let prefsDirty = false;
+    let prefsTimer;
+    let prefsSaveChain = Promise.resolve();
+    const onPrefsChanged = options.onPrefsChanged;
+    function savePrefsNow() {
+        if (!prefsDirty || !onPrefsChanged) {
+            prefsDirty = false;
+            return Promise.resolve();
+        }
+        prefsDirty = false;
+        const snapshot = { ...prefs };
+        prefsSaveChain = prefsSaveChain.then(() => onPrefsChanged(snapshot), () => onPrefsChanged(snapshot)).then(() => undefined, () => undefined // best-effort: nunca se interrumpe el preview por esto
+        );
+        return prefsSaveChain;
+    }
+    function schedulePrefsSave() {
+        prefsDirty = true;
+        if (prefsTimer || !onPrefsChanged)
+            return;
+        prefsTimer = setTimeout(() => {
+            prefsTimer = undefined;
+            void savePrefsNow();
+        }, PREFS_SAVE_DEBOUNCE_MS);
+    }
+    async function flushPrefs() {
+        if (prefsTimer) {
+            clearTimeout(prefsTimer);
+            prefsTimer = undefined;
+        }
+        // Bucle porque pueden llegar POSTs tardíos mientras se guarda.
+        for (let i = 0; i < 10; i++) {
+            await savePrefsNow();
+            await prefsSaveChain;
+            if (!prefsDirty)
+                break;
+        }
+    }
     const sockets = new Set();
     let proxyOrigin = '';
     const server = http.createServer((req, res) => {
@@ -22,7 +80,65 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
         if (requestUrl.pathname === bridgePath) {
             const selectedDevice = requestUrl.searchParams.get('device') || device;
             res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-            res.end((enableRestProxy ? (0, restBridge_1.getRestBridge)(restPath) : '') + '\n' + (0, runtimeBridge_1.getRuntimeBridge)(token) + '\n' + (0, keyboardBridge_1.getKeyboardBridge)(token, selectedDevice));
+            res.end((enableRestProxy ? (0, restBridge_1.getRestBridge)(restPath) : '') + '\n' +
+                (persistPreferences ? (0, prefsBridge_1.getPrefsBridge)(JSON.stringify(prefs), prefsPath) : '') + '\n' +
+                (0, runtimeBridge_1.getRuntimeBridge)(token) + '\n' +
+                (0, keyboardBridge_1.getKeyboardBridge)(token, selectedDevice));
+            return;
+        }
+        if (requestUrl.pathname.startsWith('/__phone_preview_prefs_')) {
+            if (!persistPreferences || requestUrl.pathname !== prefsPath || req.method !== 'POST') {
+                res.writeHead(404);
+                res.end('Preferencias no disponibles.');
+                return;
+            }
+            const chunks = [];
+            let size = 0;
+            let aborted = false;
+            req.on('data', (chunk) => {
+                size += chunk.length;
+                if (size > PREFS_MAX_BODY_BYTES) {
+                    aborted = true;
+                    res.writeHead(413);
+                    res.end('Cuerpo demasiado grande.');
+                    req.destroy();
+                    return;
+                }
+                chunks.push(chunk);
+            });
+            req.on('error', () => { if (!res.headersSent) {
+                res.writeHead(400);
+                res.end();
+            } });
+            req.on('end', () => {
+                if (aborted)
+                    return;
+                try {
+                    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+                    if (body.op === 'set' && typeof body.key === 'string' && typeof body.value === 'string') {
+                        if (body.value.length <= prefsBridge_1.PREFS_MAX_VALUE_BYTES &&
+                            (body.key in prefs || Object.keys(prefs).length < exports.PREFS_MAX_KEYS)) {
+                            prefs[body.key] = body.value;
+                            schedulePrefsSave();
+                        }
+                    }
+                    else if (body.op === 'remove' && typeof body.key === 'string') {
+                        if (delete prefs[body.key])
+                            schedulePrefsSave();
+                    }
+                    else if (body.op === 'clearAll') {
+                        for (const key of Object.keys(prefs))
+                            delete prefs[key];
+                        schedulePrefsSave();
+                    }
+                    res.writeHead(204);
+                    res.end();
+                }
+                catch {
+                    res.writeHead(400);
+                    res.end('Cuerpo inválido.');
+                }
+            });
             return;
         }
         if (requestUrl.pathname.startsWith('/__phone_preview_rest_')) {
@@ -124,8 +240,15 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
     proxyOrigin = `http://127.0.0.1:${port}`;
     return {
         url: proxyOrigin, token,
-        dispose() { server.close(); for (const socket of sockets)
-            socket.destroy(); }
+        flushPrefs,
+        dispose() {
+            // En apagado el host puede no esperar: se dispara el flush y
+            // deactivate() lo espera explícitamente con flushPrefs().
+            void flushPrefs();
+            server.close();
+            for (const socket of sockets)
+                socket.destroy();
+        }
     };
 }
 //# sourceMappingURL=previewProxy.js.map
