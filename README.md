@@ -60,6 +60,13 @@ REST support is enabled by default. Use your API's usual **absolute HTTP or HTTP
 
 The proxy supports HTTP methods such as GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS; JSON, multipart uploads, binary responses, and explicit authentication headers such as `Authorization: Bearer ...`. It preserves the API's status codes, including errors such as 401 or 422. The API does not need CORS headers for these preview requests.
 
+> ⚠️ **CORS warning — allow this connection on your backend:** the bypass above applies *only* while the proxy is enabled (default). Otherwise the browser enforces CORS and your backend **must** allow the calling origin:
+>
+> - **Port `5001` is not fixed by Flutter** — it is this extension's default (`flutterPhonePreview.port`; Flutter alone defaults to `8080`). You can change it in Settings; the value is passed as `flutter run -d web-server --web-port <port>`.
+> - **With the proxy on:** no backend CORS change needed. Requests reach your API carrying the Flutter server origin (`http://localhost:<port>`) and the browser never blocks them. Auth must use explicit headers (cookies are not forwarded).
+> - **With the proxy off (preview):** the app runs from `http://127.0.0.1:<random-port>` — a **different port on every start** — so the backend must allow that pattern (reflect the `Origin` header or allow `http://127.0.0.1:*`), including preflight `OPTIONS` answers for non-safelisted headers like `Authorization`.
+> - **In production:** allow the domain where the Flutter Web app is deployed.
+
 - The API must be reachable from the machine running the extension. For a local backend, use its actual localhost port; Android emulator addresses such as `10.0.2.2` do not refer to your computer in this web preview.
 - HTTPS certificates are validated normally. An unavailable backend or invalid certificate returns a proxy error (502); a request exceeding 120 seconds returns 504.
 - The proxy does not forward browser cookies or store API cookies. Use explicit authentication headers, or disable the proxy to test browser cookie authentication with your backend's CORS configuration.
