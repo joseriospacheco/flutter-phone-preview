@@ -9,6 +9,7 @@ const zlib_1 = require("zlib");
 const keyboardBridge_1 = require("./keyboardBridge");
 const prefsBridge_1 = require("./prefsBridge");
 const restBridge_1 = require("./restBridge");
+const trackpadGuard_1 = require("./trackpadGuard");
 const runtimeBridge_1 = require("./runtimeBridge");
 const restProxy_1 = require("./restProxy");
 const i18n_1 = require("./i18n");
@@ -82,7 +83,8 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
         if (requestUrl.pathname === bridgePath) {
             const selectedDevice = requestUrl.searchParams.get('device') || device;
             res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-            res.end((enableRestProxy ? (0, restBridge_1.getRestBridge)(restPath) : '') + '\n' +
+            res.end((0, trackpadGuard_1.getTrackpadGuard)() + '\n' +
+                (enableRestProxy ? (0, restBridge_1.getRestBridge)(restPath) : '') + '\n' +
                 (persistPreferences ? (0, prefsBridge_1.getPrefsBridge)(JSON.stringify(prefs), prefsPath) : '') + '\n' +
                 (0, runtimeBridge_1.getRuntimeBridge)(token, lang) + '\n' +
                 (0, keyboardBridge_1.getKeyboardBridge)(token, selectedDevice));

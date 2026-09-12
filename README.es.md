@@ -41,6 +41,7 @@ La vista previa ejecuta la versión web de tu app. No sustituye las pruebas en u
 - **Rotar:** cambiar entre orientación vertical y horizontal.
 - **Ajustar:** ajusta el dispositivo al espacio disponible del panel.
 - **Recargar:** recarga la app en la vista previa.
+- **Pellizco del trackpad:** el pellizco sobre la app se neutraliza a propósito — Flutter Web lo convierte en un evento `PointerPanZoom` con kind de trackpad y el framework lo rechaza con un assertion. Usa los botones de zoom (o Ctrl + rueda fuera del marco del teléfono).
 
 ## Teclado virtual
 

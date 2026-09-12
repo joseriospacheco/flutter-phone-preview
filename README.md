@@ -41,6 +41,7 @@ The preview runs the web version of your app. It does not replace testing on a p
 - **Rotate:** switch between portrait and landscape orientation.
 - **Fit:** fit the device to the available panel space.
 - **Reload:** reload the app in the preview.
+- **Trackpad pinch:** pinching over the app is neutralized on purpose — Flutter Web turns it into a `PointerPanZoom` event with trackpad kind and the framework rejects it with an assertion. Use the zoom buttons (or Ctrl + scroll outside the phone frame) instead.
 
 ## Virtual keyboard
 

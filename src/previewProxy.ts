@@ -5,6 +5,7 @@ import { gunzipSync, inflateSync, brotliDecompressSync } from 'zlib';
 import { getKeyboardBridge } from './keyboardBridge';
 import { getPrefsBridge, PREFS_MAX_VALUE_BYTES } from './prefsBridge';
 import { getRestBridge } from './restBridge';
+import { getTrackpadGuard } from './trackpadGuard';
 import { getRuntimeBridge } from './runtimeBridge';
 import { proxyRestRequest } from './restProxy';
 import { Lang, t } from './i18n';
@@ -99,6 +100,7 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
       const selectedDevice = requestUrl.searchParams.get('device') || device;
       res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(
+        getTrackpadGuard() + '\n' +
         (enableRestProxy ? getRestBridge(restPath) : '') + '\n' +
         (persistPreferences ? getPrefsBridge(JSON.stringify(prefs), prefsPath) : '') + '\n' +
         getRuntimeBridge(token, lang) + '\n' +
