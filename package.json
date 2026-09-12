@@ -2,7 +2,7 @@
   "name": "flutter-phone-preview",
   "displayName": "Flutter Phone Preview",
   "description": "Ejecuta tu app Flutter Web dentro de VS Code con un marco de teléfono (iPhone/Android).",
-  "version": "0.3.9",
+  "version": "0.4.0",
   "icon": "images/icon.png",
   "publisher": "1108762718",
   "repository": {
@@ -10,12 +10,14 @@
     "url": "https://github.com/joseriospacheco/flutter-phone-preview.git"
   },
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.106.0"
   },
   "categories": [
     "Other"
   ],
   "activationEvents": [
+    "onView:flutterPhonePreview.view",
+    "onCommand:flutterPhonePreview.show",
     "onCommand:flutterPhonePreview.start",
     "onCommand:flutterPhonePreview.stop",
     "onCommand:flutterPhonePreview.hotReload",
@@ -26,16 +28,24 @@
   "contributes": {
     "commands": [
       {
+        "command": "flutterPhonePreview.show",
+        "title": "%cmd.show%",
+        "icon": "$(device-mobile)"
+      },
+      {
         "command": "flutterPhonePreview.start",
-        "title": "%cmd.start%"
+        "title": "%cmd.start%",
+        "icon": "$(play)"
       },
       {
         "command": "flutterPhonePreview.stop",
-        "title": "%cmd.stop%"
+        "title": "%cmd.stop%",
+        "icon": "$(debug-stop)"
       },
       {
         "command": "flutterPhonePreview.hotReload",
-        "title": "%cmd.hotReload%"
+        "title": "%cmd.hotReload%",
+        "icon": "$(refresh)"
       },
       {
         "command": "flutterPhonePreview.hotRestart",
@@ -61,7 +71,6 @@
             "iphone_16_pro_max",
             "iphone_14",
             "iphone_xr",
-            "iphone_xs_slim",
             "pixel7",
             "pixel8",
             "galaxy_s22",
@@ -78,7 +87,6 @@
             "%config.device.iphone_16_pro_max%",
             "%config.device.iphone_14%",
             "%config.device.iphone_xr%",
-            "%config.device.iphone_xs_slim%",
             "%config.device.pixel7%",
             "%config.device.pixel8%",
             "%config.device.galaxy_s22%",
@@ -124,6 +132,45 @@
           "description": "%config.language%"
         }
       }
+    },
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "flutterPhonePreview",
+          "title": "%view.containerTitle%",
+          "icon": "images/phone-sidebar.svg"
+        }
+      ]
+    },
+    "views": {
+      "flutterPhonePreview": [
+        {
+          "type": "webview",
+          "id": "flutterPhonePreview.view",
+          "name": "%view.title%",
+          "icon": "images/phone-sidebar.svg",
+          "contextualTitle": "%view.containerTitle%"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "flutterPhonePreview.start",
+          "when": "view == flutterPhonePreview.view && !flutterPhonePreview.running && !flutterPhonePreview.starting",
+          "group": "navigation@1"
+        },
+        {
+          "command": "flutterPhonePreview.hotReload",
+          "when": "view == flutterPhonePreview.view && flutterPhonePreview.running && !flutterPhonePreview.starting",
+          "group": "navigation@1"
+        },
+        {
+          "command": "flutterPhonePreview.stop",
+          "when": "view == flutterPhonePreview.view && (flutterPhonePreview.running || flutterPhonePreview.starting)",
+          "group": "navigation@2"
+        }
+      ]
     }
   },
   "scripts": {

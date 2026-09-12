@@ -11,7 +11,6 @@
   "config.device.iphone_16_pro_max": "iPhone 16 Pro Max (large screen, with Dynamic Island)",
   "config.device.iphone_14": "iPhone 14 (with classic notch)",
   "config.device.iphone_xr": "iPhone XR (with classic notch)",
-  "config.device.iphone_xs_slim": "iPhone XS without frame (notch, thin bezels)",
   "config.device.pixel7": "Google Pixel 7 (punch-hole camera)",
   "config.device.pixel8": "Google Pixel 8 (punch-hole camera)",
   "config.device.galaxy_s22": "Samsung Galaxy S22 (punch-hole camera)",
@@ -28,5 +27,8 @@
   "config.language": "Extension language. Window reload required when changing this option.",
   "config.language.auto": "Follow the VS Code language",
   "config.language.es": "Spanish",
-  "config.language.en": "English"
+  "config.language.en": "English",
+  "cmd.show": "Flutter: Show Phone Preview",
+  "view.title": "Phone Preview",
+  "view.containerTitle": "Flutter Phone Preview"
 }

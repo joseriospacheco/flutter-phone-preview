@@ -5,22 +5,42 @@ exports.deactivate = deactivate;
 const vscode = require("vscode");
 const http = require("http");
 const net = require("net");
+const crypto_1 = require("crypto");
+const sidebarPreview_1 = require("./sidebarPreview");
 const previewProxy_1 = require("./previewProxy");
 const virtualKeyboard_1 = require("./virtualKeyboard");
 const i18n_1 = require("./i18n");
 const child_process_1 = require("child_process");
 let lang = 'es';
 let flutterProcess;
-let panel;
+let phoneView;
+let startPending = false;
+let startGeneration = 0;
 let previewProxy;
 let outputChannel;
 let saveListener;
 let pendingRebuild = false;
 let fallbackTimer;
+function setPreviewContext(running, starting) {
+    void vscode.commands.executeCommand('setContext', 'flutterPhonePreview.running', running);
+    void vscode.commands.executeCommand('setContext', 'flutterPhonePreview.starting', starting);
+}
 function activate(context) {
     outputChannel = vscode.window.createOutputChannel('Flutter Phone Preview');
     lang = (0, i18n_1.resolveLang)(vscode.env.language, vscode.workspace.getConfiguration('flutterPhonePreview').get('language', 'auto'));
-    context.subscriptions.push(vscode.commands.registerCommand('flutterPhonePreview.start', () => startFlutter(context)), vscode.commands.registerCommand('flutterPhonePreview.stop', () => stopFlutter()), vscode.commands.registerCommand('flutterPhonePreview.hotReload', () => sendToFlutter('r', (0, i18n_1.t)(lang, 'host.hotReload'))), vscode.commands.registerCommand('flutterPhonePreview.hotRestart', () => sendToFlutter('R', (0, i18n_1.t)(lang, 'host.hotRestart'))), vscode.commands.registerCommand('flutterPhonePreview.clearPreferences', () => clearSavedPrefs(context)), outputChannel);
+    setPreviewContext(false, false);
+    phoneView = new sidebarPreview_1.PhonePreviewViewProvider({
+        renderPreview: session => getWebviewHtml(session.url, session.device, session.token),
+        renderIdle: getSidebarIdleHtml,
+        onStart: () => {
+            void vscode.commands.executeCommand('flutterPhonePreview.start');
+        },
+        showView: () => vscode.commands.executeCommand(sidebarPreview_1.PhonePreviewViewProvider.viewId + '.focus'),
+        onMessage: handlePreviewMessage
+    });
+    context.subscriptions.push(phoneView, vscode.window.registerWebviewViewProvider(sidebarPreview_1.PhonePreviewViewProvider.viewId, phoneView, {
+        webviewOptions: { retainContextWhenHidden: true }
+    }), vscode.commands.registerCommand('flutterPhonePreview.show', () => phoneView?.show()), vscode.commands.registerCommand('flutterPhonePreview.start', () => startFlutter(context)), vscode.commands.registerCommand('flutterPhonePreview.stop', () => stopFlutter()), vscode.commands.registerCommand('flutterPhonePreview.hotReload', () => sendToFlutter('r', (0, i18n_1.t)(lang, 'host.hotReload'))), vscode.commands.registerCommand('flutterPhonePreview.hotRestart', () => sendToFlutter('R', (0, i18n_1.t)(lang, 'host.hotRestart'))), vscode.commands.registerCommand('flutterPhonePreview.clearPreferences', () => clearSavedPrefs(context)), outputChannel);
 }
 function getWorkspaceFolder() {
     const folders = vscode.workspace.workspaceFolders;
@@ -190,13 +210,27 @@ async function ensurePortFree(port) {
     return false;
 }
 async function startFlutter(context) {
-    if (flutterProcess) {
+    if (flutterProcess || startPending) {
         vscode.window.showInformationMessage((0, i18n_1.t)(lang, 'host.alreadyRunning'));
-        if (panel) {
-            panel.reveal();
-        }
+        await phoneView?.show();
         return;
     }
+    const generation = ++startGeneration;
+    startPending = true;
+    try {
+        await launchFlutter(context, generation);
+    }
+    catch (error) {
+        if (generation === startGeneration)
+            stopFlutter();
+        throw error;
+    }
+    finally {
+        if (generation === startGeneration)
+            startPending = false;
+    }
+}
+async function launchFlutter(context, generation) {
     const cwd = getWorkspaceFolder();
     if (!cwd) {
         return;
@@ -205,20 +239,14 @@ async function startFlutter(context) {
     const port = config.get('port', 5001);
     const device = config.get('device', 'iphone15');
     const autoReloadOnSave = config.get('autoReloadOnSave', true);
-    // Activa los Preview Editors antes de crear el WebviewPanel cuando el
-    // perfil de VS Code los tiene desactivados.
-    const editorConfig = vscode.workspace.getConfiguration('workbench.editor');
-    if (editorConfig.get('enablePreview') === false) {
-        try {
-            await editorConfig.update('enablePreview', true, vscode.ConfigurationTarget.Global);
-        }
-        catch {
-            outputChannel.appendLine((0, i18n_1.t)(lang, 'host.enablePreviewFailed'));
-        }
-    }
-    if (!(await ensurePortFree(port))) {
+    if (!(await ensurePortFree(port)) || generation !== startGeneration) {
         return;
     }
+    phoneView?.setStarting();
+    setPreviewContext(false, true);
+    await phoneView?.show();
+    if (generation !== startGeneration)
+        return;
     outputChannel.show(true);
     outputChannel.appendLine((0, i18n_1.t)(lang, 'host.starting', { port }));
     flutterProcess = (0, child_process_1.spawn)('flutter', ['run', '-d', 'web-server', '--web-port', String(port)], {
@@ -256,14 +284,19 @@ async function startFlutter(context) {
             }
             if (!opened) {
                 opened = true;
-                openPhonePanel(context, baseUrl, device).catch((error) => {
+                openPhoneView(context, baseUrl, device).catch((error) => {
+                    if (flutterProcess !== startingProcess)
+                        return;
                     opened = false;
+                    stopFlutter();
                     vscode.window.showErrorMessage((0, i18n_1.t)(lang, 'host.openFailed', { error: error.message }));
                 });
             }
         });
     }
     flutterProcess.stdout.on('data', (data) => {
+        if (flutterProcess !== startingProcess)
+            return;
         const text = data.toString();
         outputChannel.append(text);
         // El puerto ya está ocupado (p. ej. quedó un `flutter run` anterior colgado).
@@ -295,6 +328,9 @@ async function startFlutter(context) {
         outputChannel.append(data.toString());
     });
     flutterProcess.on('close', (code) => {
+        if (flutterProcess !== startingProcess)
+            return;
+        clearPreviewSession();
         outputChannel.appendLine((0, i18n_1.t)(lang, 'host.flutterExited', { code: String(code) }));
         flutterProcess = undefined;
         disposeSaveListener();
@@ -304,6 +340,9 @@ async function startFlutter(context) {
         }
     });
     flutterProcess.on('error', (err) => {
+        if (flutterProcess !== startingProcess)
+            return;
+        clearPreviewSession();
         vscode.window.showErrorMessage((0, i18n_1.t)(lang, 'host.flutterSpawnFail', { error: err.message }));
         flutterProcess = undefined;
         disposeSaveListener();
@@ -370,18 +409,23 @@ function clearSavedPrefs(context) {
     const key = prefsKeyForFolder(folder);
     void context.workspaceState.update(key, undefined).then(() => vscode.window.showInformationMessage((0, i18n_1.t)(lang, 'host.prefsCleared')), (err) => vscode.window.showErrorMessage((0, i18n_1.t)(lang, 'host.prefsClearFail', { error: String(err) })));
 }
-function stopFlutter() {
+function clearPreviewSession() {
     previewProxy?.dispose();
     previewProxy = undefined;
+    phoneView?.clear();
+    setPreviewContext(false, false);
+}
+function stopFlutter() {
+    startGeneration++;
+    startPending = false;
+    pendingRebuild = false;
+    clearPreviewSession();
     clearFallbackTimer();
     if (flutterProcess) {
         killFlutterProcess();
         vscode.window.showInformationMessage((0, i18n_1.t)(lang, 'host.flutterStopped'));
     }
     disposeSaveListener();
-    if (panel) {
-        panel.dispose();
-    }
 }
 function sendToFlutter(key, label) {
     if (flutterProcess && flutterProcess.stdin) {
@@ -394,11 +438,10 @@ function sendToFlutter(key, label) {
     }
 }
 function refreshPanelFrame() {
-    if (panel) {
-        panel.webview.postMessage({ command: 'forceReload' });
-    }
+    phoneView?.reload();
 }
-async function openPhonePanel(context, url, device) {
+async function openPhoneView(context, url, device) {
+    const runningProcess = flutterProcess;
     const previewConfig = vscode.workspace.getConfiguration('flutterPhonePreview');
     const enableRestProxy = previewConfig.get('enableRestProxy', true);
     const persistPreferences = previewConfig.get('persistPreferences', true);
@@ -423,50 +466,88 @@ async function openPhonePanel(context, url, device) {
     outputChannel.appendLine(enableRestProxy
         ? (0, i18n_1.t)(lang, 'host.restProxyOn')
         : (0, i18n_1.t)(lang, 'host.restProxyOff'));
-    if (!flutterProcess) {
+    if (!runningProcess || flutterProcess !== runningProcess) {
         proxy.dispose();
         return;
     }
     previewProxy?.dispose();
     previewProxy = proxy;
-    url = proxy.url;
-    panel = vscode.window.createWebviewPanel('flutterPhonePreview', (0, i18n_1.t)(lang, 'host.panelTitle'), { viewColumn: vscode.ViewColumn.Two, preserveFocus: true }, {
-        enableScripts: true,
-        retainContextWhenHidden: true
-    });
-    // Espera a que el webview esté listo (JS ejecutado) antes de enviar el
-    // mensaje que le dice que cargue el iframe. El receptor se registra antes
-    // de asignar el HTML para no perder el aviso si el webview arranca rápido.
-    const readyListener = panel.webview.onDidReceiveMessage((msg) => {
-        if (msg.command === 'webviewReady') {
-            panel?.webview.postMessage({ command: 'loadApp', url });
-        }
-        else if (msg.command === 'previewTimeout') {
-            outputChannel.appendLine((0, i18n_1.t)(lang, 'host.iframeTimeout'));
-        }
-        else if (msg.command === 'previewRuntimeError' && msg.token === proxy.token) {
-            const kind = typeof msg.kind === 'string' ? msg.kind : 'runtime';
-            const detail = typeof msg.message === 'string' ? msg.message : (0, i18n_1.t)(lang, 'panel.errorUnknown');
-            outputChannel.appendLine(`[App ${kind}] ${detail}`);
-            if (typeof msg.stack === 'string' && msg.stack.trim()) {
-                outputChannel.appendLine(msg.stack);
-            }
-        }
-        else if (msg.command === 'webviewRuntimeError') {
-            const detail = typeof msg.message === 'string' ? msg.message : (0, i18n_1.t)(lang, 'panel.errorPanel');
-            outputChannel.appendLine(`[Panel] ${detail}`);
-            if (typeof msg.stack === 'string' && msg.stack.trim()) {
-                outputChannel.appendLine(msg.stack);
-            }
-        }
-    }, null, context.subscriptions);
-    panel.webview.html = getWebviewHtml(url, device, proxy.token);
-    panel.reveal(vscode.ViewColumn.Two, true);
-    panel.onDidDispose(() => {
-        readyListener.dispose();
-        panel = undefined;
-        stopFlutter();
-    }, null, context.subscriptions);
+    phoneView?.setPreview({ url: proxy.url, device, token: proxy.token });
+    setPreviewContext(true, false);
+    await phoneView?.show();
+}
+function getSidebarIdleHtml(starting) {
+    const nonce = (0, crypto_1.randomBytes)(16).toString('hex');
+    const title = (0, i18n_1.t)(lang, starting ? 'sidebar.startingTitle' : 'sidebar.idleTitle');
+    const description = (0, i18n_1.t)(lang, starting ? 'sidebar.startingDescription' : 'sidebar.idleDescription');
+    if (starting) {
+        return `<!DOCTYPE html>
+<html lang='${lang}'>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<meta http-equiv='Content-Security-Policy' content="default-src 'none'; style-src 'unsafe-inline';">
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--vscode-sideBar-background); color: var(--vscode-foreground); font: 13px/1.5 var(--vscode-font-family, sans-serif); }
+  .loading-indicator { width: 34px; height: 34px; border: 3px solid var(--vscode-panel-border); border-top-color: var(--vscode-textLink-foreground); border-radius: 50%; animation: loading-spin .9s linear infinite; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  @keyframes loading-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .loading-indicator { animation: none; } }
+</style>
+</head>
+<body>
+  <div class='loading-indicator' role='status' aria-live='polite' aria-busy='true' aria-label='${title}'></div>
+  <span class='sr-only'>${description}</span>
+</body>
+</html>`;
+    }
+    return `<!DOCTYPE html>
+<html lang='${lang}'>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<meta http-equiv='Content-Security-Policy' content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 18px; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font: 13px/1.5 var(--vscode-font-family); }
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+  p { color: var(--vscode-descriptionForeground); margin: 0 0 18px; }
+  button { width: 100%; padding: 8px 12px; border: 0; border-radius: 3px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); font: inherit; cursor: pointer; }
+  button:hover { background: var(--vscode-button-hoverBackground); }
+  button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 3px; }
+  button:disabled { opacity: .65; cursor: default; }
+</style>
+</head>
+<body>
+  <h1>${title}</h1>
+  <p role='status'>${description}</p>
+  <button type='button' id='startPreview'>${(0, i18n_1.t)(lang, 'sidebar.start')}</button>
+  <script nonce='${nonce}'>
+    const vscode = acquireVsCodeApi();
+    document.getElementById('startPreview').addEventListener('click', () => vscode.postMessage({ command: 'startPreview' }));
+  </script>
+</body>
+</html>`;
+}
+function handlePreviewMessage(msg, session) {
+    if (msg.command === 'previewTimeout') {
+        outputChannel.appendLine((0, i18n_1.t)(lang, 'host.iframeTimeout'));
+    }
+    else if (msg.command === 'previewRuntimeError' && msg.token === session.token) {
+        const kind = typeof msg.kind === 'string' ? msg.kind : 'runtime';
+        const detail = typeof msg.message === 'string' ? msg.message : (0, i18n_1.t)(lang, 'panel.errorUnknown');
+        outputChannel.appendLine(`[App ${kind}] ${detail}`);
+        if (typeof msg.stack === 'string' && msg.stack.trim())
+            outputChannel.appendLine(msg.stack);
+    }
+    else if (msg.command === 'webviewRuntimeError') {
+        const detail = typeof msg.message === 'string' ? msg.message : (0, i18n_1.t)(lang, 'panel.errorPanel');
+        outputChannel.appendLine(`[Panel] ${detail}`);
+        if (typeof msg.stack === 'string' && msg.stack.trim())
+            outputChannel.appendLine(msg.stack);
+    }
 }
 function getWebviewHtml(url, device, keyboardToken = '') {
     return `<!DOCTYPE html>
@@ -947,7 +1028,6 @@ function getWebviewHtml(url, device, keyboardToken = '') {
       { id: 'iphone_16_pro_max', name: 'iPhone 16 Pro Max', width: 440, height: 956, radius: 56, notchType: 'island', notchWidth: 125, inset: 46, frame: '#111111' },
       { id: 'iphone_14', name: 'iPhone 14', width: 390, height: 844, radius: 48, notchType: 'island', notchWidth: 200, inset: 46, frame: '#0e0e0e' },
       { id: 'iphone_xr', name: 'iPhone XR', width: 414, height: 896, radius: 48, notchType: 'island', notchWidth: 210, inset: 46, frame: '#0e0e0e' },
-      { id: 'iphone_xs_slim', name: 'iPhone XS sin marco', width: 375, height: 812, radius: 30, screenRadius: 26, bezelX: 3, bezelY: 3, notchType: 'island', notchWidth: 210, inset: 46, frame: '#0e0e0e' },
       { id: 'pixel7', name: 'Google Pixel 7', width: 412, height: 915, radius: 30, notchType: 'punch', inset: 38, frame: '#1b1b1b' },
       { id: 'pixel8', name: 'Google Pixel 8', width: 412, height: 915, radius: 32, notchType: 'punch', inset: 38, frame: '#1b1b1b' },
       { id: 'galaxy_s22', name: 'Samsung Galaxy S22', width: 360, height: 780, radius: 26, notchType: 'punch', inset: 36, frame: '#151515' },
@@ -1221,7 +1301,7 @@ function getWebviewHtml(url, device, keyboardToken = '') {
 
     // Avisa a la extensión que el JS del webview está listo y puede enviar
     // el mensaje 'loadApp' para cargar el iframe.
-    vscode.postMessage({ command: 'webviewReady' });
+    vscode.postMessage({ command: 'webviewReady', token: ${JSON.stringify(keyboardToken)} });
   </script>
 </body>
 </html>`;
@@ -1240,14 +1320,8 @@ async function deactivate() {
     clearFallbackTimer();
     disposeSaveListener();
     killProcessTreeSync();
-    if (panel) {
-        try {
-            panel.dispose();
-        }
-        catch {
-            // el panel ya estaba cerrado
-        }
-        panel = undefined;
-    }
+    startGeneration++;
+    phoneView?.dispose();
+    phoneView = undefined;
 }
 //# sourceMappingURL=extension.js.map
