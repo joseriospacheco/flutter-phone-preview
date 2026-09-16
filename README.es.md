@@ -53,7 +53,7 @@ Haz clic en un campo de texto dentro del marco del dispositivo para abrir el tec
 - **Correo y URL:** acceso rápido a `@`, `.` y `/`.
 - **Multilínea:** admite saltos de línea.
 
-Usa **Retroceso** para borrar caracteres y **Listo**, **Buscar** o **Enviar** para la acción del campo. Usa la flecha hacia abajo para ocultar el teclado. La app tiene menos espacio vertical mientras el teclado está abierto.
+Usa **Retroceso** para borrar caracteres y **Listo**, **Buscar** o **Enviar** para la acción del campo. Usa la flecha hacia abajo para ocultar el teclado. El teclado se superpone sin reducir el tamaño del contenido de la app, incluso en paneles pequeños. Si tapa el campo activo, la vista se desplaza hacia arriba y vuelve a su posición al ocultar el teclado. Esto evita desbordamientos provocados por abrir el teclado de la vista previa; no simula los márgenes del teclado nativo ni corrige contenido que ya se desborda con el teclado cerrado.
 
 Los campos de solo lectura y los configurados con `TextInputType.none` no abren el teclado virtual. Algunos tipos de entrada menos comunes de Flutter pueden usar la disposición de texto porque Flutter Web no expone un modo de entrada de navegador distinto para ellos.
 

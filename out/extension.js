@@ -5,8 +5,8 @@ exports.deactivate = deactivate;
 const vscode = require("vscode");
 const http = require("http");
 const net = require("net");
-const crypto_1 = require("crypto");
 const sidebarPreview_1 = require("./sidebarPreview");
+const sidebarIdle_1 = require("./sidebarIdle");
 const previewProxy_1 = require("./previewProxy");
 const virtualKeyboard_1 = require("./virtualKeyboard");
 const i18n_1 = require("./i18n");
@@ -31,7 +31,7 @@ function activate(context) {
     setPreviewContext(false, false);
     phoneView = new sidebarPreview_1.PhonePreviewViewProvider({
         renderPreview: session => getWebviewHtml(session.url, session.device, session.token),
-        renderIdle: getSidebarIdleHtml,
+        renderIdle: starting => (0, sidebarIdle_1.getSidebarIdleHtml)(lang, starting),
         onStart: () => {
             void vscode.commands.executeCommand('flutterPhonePreview.start');
         },
@@ -475,61 +475,6 @@ async function openPhoneView(context, url, device) {
     phoneView?.setPreview({ url: proxy.url, device, token: proxy.token });
     setPreviewContext(true, false);
     await phoneView?.show();
-}
-function getSidebarIdleHtml(starting) {
-    const nonce = (0, crypto_1.randomBytes)(16).toString('hex');
-    const title = (0, i18n_1.t)(lang, starting ? 'sidebar.startingTitle' : 'sidebar.idleTitle');
-    const description = (0, i18n_1.t)(lang, starting ? 'sidebar.startingDescription' : 'sidebar.idleDescription');
-    if (starting) {
-        return `<!DOCTYPE html>
-<html lang='${lang}'>
-<head>
-<meta charset='UTF-8'>
-<meta name='viewport' content='width=device-width, initial-scale=1'>
-<meta http-equiv='Content-Security-Policy' content="default-src 'none'; style-src 'unsafe-inline';">
-<style>
-  * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
-  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--vscode-sideBar-background); color: var(--vscode-foreground); font: 13px/1.5 var(--vscode-font-family, sans-serif); }
-  .loading-indicator { width: 34px; height: 34px; border: 3px solid var(--vscode-panel-border); border-top-color: var(--vscode-textLink-foreground); border-radius: 50%; animation: loading-spin .9s linear infinite; }
-  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-  @keyframes loading-spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .loading-indicator { animation: none; } }
-</style>
-</head>
-<body>
-  <div class='loading-indicator' role='status' aria-live='polite' aria-busy='true' aria-label='${title}'></div>
-  <span class='sr-only'>${description}</span>
-</body>
-</html>`;
-    }
-    return `<!DOCTYPE html>
-<html lang='${lang}'>
-<head>
-<meta charset='UTF-8'>
-<meta name='viewport' content='width=device-width, initial-scale=1'>
-<meta http-equiv='Content-Security-Policy' content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'">
-<style>
-  * { box-sizing: border-box; }
-  body { margin: 0; padding: 24px 18px; color: var(--vscode-foreground); background: var(--vscode-sideBar-background); font: 13px/1.5 var(--vscode-font-family); }
-  h1 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
-  p { color: var(--vscode-descriptionForeground); margin: 0 0 18px; }
-  button { width: 100%; padding: 8px 12px; border: 0; border-radius: 3px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); font: inherit; cursor: pointer; }
-  button:hover { background: var(--vscode-button-hoverBackground); }
-  button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 3px; }
-  button:disabled { opacity: .65; cursor: default; }
-</style>
-</head>
-<body>
-  <h1>${title}</h1>
-  <p role='status'>${description}</p>
-  <button type='button' id='startPreview'>${(0, i18n_1.t)(lang, 'sidebar.start')}</button>
-  <script nonce='${nonce}'>
-    const vscode = acquireVsCodeApi();
-    document.getElementById('startPreview').addEventListener('click', () => vscode.postMessage({ command: 'startPreview' }));
-  </script>
-</body>
-</html>`;
 }
 function handlePreviewMessage(msg, session) {
     if (msg.command === 'previewTimeout') {

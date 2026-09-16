@@ -25,23 +25,39 @@ export function getKeyboardBridge(token: string, device: string): string {
       return element && element.isConnected && !element.disabled && !element.readOnly &&
         (element.tagName === 'TEXTAREA' || (element.tagName === 'INPUT' && /^(text|search|email|url|tel|password|number)$/.test(element.type)));
     }
+    function fieldRect(element) {
+      const rect = element.getBoundingClientRect();
+      if (!rect.width || !rect.height || !window.innerHeight) return null;
+      return {
+        top: Math.round(rect.top * 100) / 100,
+        bottom: Math.round(rect.bottom * 100) / 100,
+        viewportHeight: window.innerHeight
+      };
+    }
     function sync() {
       const element = focusedElement();
       if (element !== active) { active = element; fieldId++; }
       let state = { visible: false, fieldId };
       if (editable(active) && active.inputMode !== 'none') {
         const mode = active.inputMode || ({ number: 'decimal', tel: 'tel', email: 'email', url: 'url', search: 'search' }[active.type]) || 'text';
-        state = { visible: true, fieldId, mode, multiline: active.tagName === 'TEXTAREA', action: active.enterKeyHint || (active.tagName === 'TEXTAREA' ? 'enter' : 'done') };
+        state = { visible: true, fieldId, mode, multiline: active.tagName === 'TEXTAREA', action: active.enterKeyHint || (active.tagName === 'TEXTAREA' ? 'enter' : 'done'), rect: fieldRect(active) };
       }
       const serialized = JSON.stringify(state);
       if (serialized !== lastState) { lastState = serialized; send(state); }
     }
-    document.addEventListener('focusin', sync, true);
+    let syncFrame = 0;
+    function scheduleSync() {
+      if (syncFrame) return;
+      syncFrame = requestAnimationFrame(() => { syncFrame = 0; sync(); });
+    }
+    document.addEventListener('focusin', () => { sync(); scheduleSync(); }, true);
     document.addEventListener('focusout', () => setTimeout(sync, 0), true);
+    document.addEventListener('scroll', scheduleSync, true);
+    window.addEventListener('resize', scheduleSync);
     // Flutter can reuse the same hidden input and update only its attributes.
-    new MutationObserver(sync).observe(document.documentElement, {
+    new MutationObserver(scheduleSync).observe(document.documentElement, {
       subtree: true, childList: true, attributes: true,
-      attributeFilter: ['inputmode', 'type', 'readonly', 'disabled', 'enterkeyhint']
+      attributeFilter: ['inputmode', 'type', 'readonly', 'disabled', 'enterkeyhint', 'style']
     });
     function edit(text, deleting = false) {
       const element = active;

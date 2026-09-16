@@ -53,7 +53,7 @@ Click a text field inside the device frame to open the virtual keyboard automati
 - **Email and URL:** quick access to `@`, `.`, and `/`.
 - **Multiline:** supports line breaks.
 
-Use **Backspace** to delete characters and **Done**, **Search**, or **Send** for the field action. Use the down arrow to hide the keyboard. The app has less vertical space while the keyboard is open.
+Use **Backspace** to delete characters and **Done**, **Search**, or **Send** for the field action. Use the down arrow to hide the keyboard. The keyboard overlays the app without shrinking its layout, including in small panels. When the focused field would be covered, the preview shifts upward and returns when the keyboard closes. This avoids layout overflows caused by opening the preview keyboard; it does not simulate native keyboard insets or fix content that already overflows with the keyboard closed.
 
 Read-only fields and fields configured with `TextInputType.none` do not open the virtual keyboard. Some less common Flutter input types may use the text layout because Flutter Web does not expose a distinct browser input mode for them.
 

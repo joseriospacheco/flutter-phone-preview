@@ -90,7 +90,23 @@ function getVirtualKeyboardScript(token, lang = 'es') {
       virtualKeyboard.hidden = !keyboardState.visible;
       virtualKeyboard.style.setProperty('--keyboard-height', height + 'px');
       virtualKeyboard.dataset.landscape = String(rotated);
-      preview.style.height = 'calc(100% - ' + (inset + height) + 'px)';
+      // Keep Flutter's layout viewport stable. Resizing it on focus makes a
+      // fixed Column overflow and is not equivalent to a native keyboard inset.
+      preview.style.height = 'calc(100% - ' + inset + 'px)';
+      const rect = keyboardState.rect;
+      let offset = 0;
+      if (height && rect && Number.isFinite(rect.top) && Number.isFinite(rect.bottom) &&
+          Number.isFinite(rect.viewportHeight) && rect.viewportHeight > 0 && rect.bottom > rect.top) {
+        const ratio = available / rect.viewportHeight;
+        const top = rect.top * ratio;
+        const bottom = rect.bottom * ratio;
+        // Pan only the embedded view, without changing its width/height or the
+        // Flutter widget tree. Leave a small gap above the overlay for the caret.
+        offset = Math.max(0, Math.min(height, top - 12, bottom - (available - height - 12)));
+      }
+      preview.style.transform = offset ? 'translateY(-' + offset + 'px)' : '';
+      // Do not pan app content into the simulated status bar/island.
+      preview.style.clipPath = offset ? 'inset(' + offset + 'px 0 0 0)' : '';
     }
     function resetKeyboard() {
       keyboardState.visible = false;
@@ -155,8 +171,12 @@ function getVirtualKeyboardScript(token, lang = 'es') {
       if (event.source !== preview.contentWindow || event.origin !== new URL(baseUrl).origin || !message ||
           message.source !== 'phone-preview-keyboard' || message.token !== keyboardToken) return;
       if (message.fieldId !== keyboardState.fieldId || message.mode !== keyboardState.mode) { shifted = false; symbols = false; }
+      const layoutChanged = message.visible && (!keyboardState.visible ||
+        message.fieldId !== keyboardState.fieldId || message.mode !== keyboardState.mode ||
+        message.action !== keyboardState.action || message.multiline !== keyboardState.multiline);
       keyboardState = message;
-      if (message.visible) renderKeyboard(); else layoutKeyboard();
+      // Geometry updates must not rebuild the keys under the user's pointer.
+      if (layoutChanged) renderKeyboard(); else layoutKeyboard();
     });
   `;
 }
