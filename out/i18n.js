@@ -16,7 +16,7 @@ const en = {
     'host.openFolderFirst': 'Open a folder with a Flutter project first.',
     'host.alreadyRunning': 'Flutter is already running.',
     'host.enablePreviewFailed': 'Could not enable workbench.editor.enablePreview automatically.',
-    'host.starting': 'Starting: flutter run -d web-server --web-port {port}',
+    'host.starting': 'Starting: flutter run -d web-server --web-port {port} --no-web-resources-cdn',
     'host.serverDetected': 'Server detected, waiting for the app to finish compiling...',
     'host.appCompiled': 'App compiled, opening panel…',
     'host.slowNoSignal': 'Flutter has not announced the app yet. Check the Flutter Phone Preview channel.',
@@ -75,6 +75,7 @@ const en = {
     'proxy.restUnavailable': 'REST proxy unavailable.',
     'proxy.prepareFailed': 'Could not prepare the preview.',
     'proxy.flutterUnavailable': 'The Flutter server is unavailable.',
+    'proxy.fontUnavailable': 'The bundled preview font is unavailable. Reinstall Flutter Phone Preview.',
     'proxy.invalidBody': 'Invalid body.',
     'proxy.bodyTooLarge': 'Body too large.',
     // ---- Runtime bridge default ----
@@ -161,7 +162,7 @@ const es = {
     'host.openFolderFirst': 'Abre una carpeta con un proyecto Flutter primero.',
     'host.alreadyRunning': 'Flutter ya se está ejecutando.',
     'host.enablePreviewFailed': 'No se pudo activar workbench.editor.enablePreview automáticamente.',
-    'host.starting': 'Iniciando: flutter run -d web-server --web-port {port}',
+    'host.starting': 'Iniciando: flutter run -d web-server --web-port {port} --no-web-resources-cdn',
     'host.serverDetected': 'Servidor detectado, esperando a que la app termine de compilar...',
     'host.appCompiled': 'App compilada, abriendo panel…',
     'host.slowNoSignal': 'Flutter aún no anunció que la app esté disponible. Revisa el canal Flutter Phone Preview.',
@@ -220,6 +221,7 @@ const es = {
     'proxy.restUnavailable': 'Proxy REST no disponible.',
     'proxy.prepareFailed': 'No se pudo preparar la vista previa.',
     'proxy.flutterUnavailable': 'El servidor Flutter no está disponible.',
+    'proxy.fontUnavailable': 'La fuente incluida en la vista previa no está disponible. Reinstala Flutter Phone Preview.',
     'proxy.invalidBody': 'Cuerpo inválido.',
     'proxy.bodyTooLarge': 'Cuerpo demasiado grande.',
     // ---- Runtime bridge default ----

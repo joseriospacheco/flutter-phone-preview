@@ -276,7 +276,7 @@ async function launchFlutter(context: vscode.ExtensionContext, generation: numbe
   outputChannel.show(true);
   outputChannel.appendLine(t(lang, 'host.starting', { port }));
 
-  flutterProcess = spawn('flutter', ['run', '-d', 'web-server', '--web-port', String(port)], {
+  flutterProcess = spawn('flutter', ['run', '-d', 'web-server', '--web-port', String(port), '--no-web-resources-cdn'], {
     cwd,
     shell: true
   });

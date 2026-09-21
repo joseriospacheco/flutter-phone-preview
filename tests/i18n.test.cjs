@@ -15,7 +15,7 @@ test('en and es dictionaries have the same keys', () => {
 test('t() returns the translated value and interpolates vars', () => {
   assert.equal(t('en', 'host.panelTitle'), 'Flutter — Phone View');
   assert.equal(t('es', 'host.panelTitle'), 'Flutter — Vista de Teléfono');
-  assert.equal(t('es', 'host.starting', { port: 5001 }), 'Iniciando: flutter run -d web-server --web-port 5001');
+  assert.equal(t('es', 'host.starting', { port: 5001 }), 'Iniciando: flutter run -d web-server --web-port 5001 --no-web-resources-cdn');
   assert.equal(t('en', 'host.portCheckTitle', { port: 9 }), 'Port 9 is already in use (a previous "flutter run" is probably still around).');
 });
 

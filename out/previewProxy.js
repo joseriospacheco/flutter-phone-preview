@@ -13,6 +13,7 @@ const trackpadGuard_1 = require("./trackpadGuard");
 const runtimeBridge_1 = require("./runtimeBridge");
 const restProxy_1 = require("./restProxy");
 const i18n_1 = require("./i18n");
+const offlineFonts_1 = require("./offlineFonts");
 exports.PREFS_MAX_KEYS = 2000;
 const PREFS_SAVE_DEBOUNCE_MS = 500;
 const PREFS_MAX_BODY_BYTES = 256 * 1024;
@@ -80,6 +81,31 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
     let proxyOrigin = '';
     const server = http.createServer((req, res) => {
         const requestUrl = new URL(req.url || '/', 'http://localhost');
+        if (requestUrl.pathname.startsWith('/__phone_preview_fonts/')) {
+            if (requestUrl.pathname !== offlineFonts_1.OFFLINE_ROBOTO_PATH) {
+                res.writeHead(404);
+                res.end();
+                return;
+            }
+            if (req.method !== 'GET' && req.method !== 'HEAD') {
+                res.writeHead(405, { Allow: 'GET, HEAD' });
+                res.end();
+                return;
+            }
+            void (0, offlineFonts_1.readOfflineRoboto)().then(font => {
+                if (res.destroyed)
+                    return;
+                res.writeHead(200, { 'Content-Type': 'font/ttf', 'Content-Length': font.length,
+                    'Cache-Control': 'public, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' });
+                res.end(req.method === 'HEAD' ? undefined : font);
+            }).catch(() => {
+                if (res.destroyed)
+                    return;
+                res.writeHead(500);
+                res.end((0, i18n_1.t)(lang, 'proxy.fontUnavailable'));
+            });
+            return;
+        }
         if (requestUrl.pathname === bridgePath) {
             const selectedDevice = requestUrl.searchParams.get('device') || device;
             res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -164,7 +190,9 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
             path: requestUrl.pathname + requestUrl.search, headers
         }, response => {
             const responseHeaders = { ...response.headers };
-            if (!String(response.headers['content-type']).includes('text/html') || req.method === 'HEAD') {
+            const isFontManifest = req.method === 'GET' && requestUrl.pathname.endsWith('/FontManifest.json') &&
+                (response.statusCode === 200 || response.statusCode === 404);
+            if ((!isFontManifest && !String(response.headers['content-type']).includes('text/html')) || req.method === 'HEAD') {
                 res.writeHead(response.statusCode || 502, responseHeaders);
                 response.pipe(res);
                 response.on('error', () => res.destroy());
@@ -183,6 +211,18 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
                         body = (0, zlib_1.inflateSync)(body);
                     else if (encoding === 'br')
                         body = (0, zlib_1.brotliDecompressSync)(body);
+                    if (isFontManifest) {
+                        const manifest = (0, offlineFonts_1.withOfflineRoboto)(response.statusCode === 404 ? '[]' : body.toString('utf8'), proxyOrigin + offlineFonts_1.OFFLINE_ROBOTO_PATH);
+                        delete responseHeaders['content-length'];
+                        delete responseHeaders['content-encoding'];
+                        delete responseHeaders['etag'];
+                        delete responseHeaders['last-modified'];
+                        responseHeaders['content-type'] = 'application/json; charset=utf-8';
+                        responseHeaders['cache-control'] = 'no-store';
+                        res.writeHead(200, responseHeaders);
+                        res.end(manifest);
+                        return;
+                    }
                     const selectedDevice = requestUrl.searchParams.get('_previewDevice') || device;
                     const script = `<script src="${bridgePath}?device=${encodeURIComponent(selectedDevice)}"></script>`;
                     const html = body.toString('utf8');

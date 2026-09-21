@@ -249,7 +249,7 @@ async function launchFlutter(context, generation) {
         return;
     outputChannel.show(true);
     outputChannel.appendLine((0, i18n_1.t)(lang, 'host.starting', { port }));
-    flutterProcess = (0, child_process_1.spawn)('flutter', ['run', '-d', 'web-server', '--web-port', String(port)], {
+    flutterProcess = (0, child_process_1.spawn)('flutter', ['run', '-d', 'web-server', '--web-port', String(port), '--no-web-resources-cdn'], {
         cwd,
         shell: true
     });

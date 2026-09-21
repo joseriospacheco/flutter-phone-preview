@@ -9,6 +9,7 @@ import { getTrackpadGuard } from './trackpadGuard';
 import { getRuntimeBridge } from './runtimeBridge';
 import { proxyRestRequest } from './restProxy';
 import { Lang, t } from './i18n';
+import { OFFLINE_ROBOTO_PATH, readOfflineRoboto, withOfflineRoboto } from './offlineFonts';
 
 export interface PreviewProxy {
   url: string;
@@ -96,6 +97,22 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
   let proxyOrigin = '';
   const server = http.createServer((req, res) => {
     const requestUrl = new URL(req.url || '/', 'http://localhost');
+    if (requestUrl.pathname.startsWith('/__phone_preview_fonts/')) {
+      if (requestUrl.pathname !== OFFLINE_ROBOTO_PATH) { res.writeHead(404); res.end(); return; }
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { Allow: 'GET, HEAD' }); res.end(); return;
+      }
+      void readOfflineRoboto().then(font => {
+        if (res.destroyed) return;
+        res.writeHead(200, { 'Content-Type': 'font/ttf', 'Content-Length': font.length,
+          'Cache-Control': 'public, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' });
+        res.end(req.method === 'HEAD' ? undefined : font);
+      }).catch(() => {
+        if (res.destroyed) return;
+        res.writeHead(500); res.end(t(lang, 'proxy.fontUnavailable'));
+      });
+      return;
+    }
     if (requestUrl.pathname === bridgePath) {
       const selectedDevice = requestUrl.searchParams.get('device') || device;
       res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -174,7 +191,9 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
       path: requestUrl.pathname + requestUrl.search, headers
     }, response => {
       const responseHeaders = { ...response.headers };
-      if (!String(response.headers['content-type']).includes('text/html') || req.method === 'HEAD') {
+      const isFontManifest = req.method === 'GET' && requestUrl.pathname.endsWith('/FontManifest.json') &&
+        (response.statusCode === 200 || response.statusCode === 404);
+      if ((!isFontManifest && !String(response.headers['content-type']).includes('text/html')) || req.method === 'HEAD') {
         res.writeHead(response.statusCode || 502, responseHeaders);
         response.pipe(res);
         response.on('error', () => res.destroy());
@@ -190,6 +209,19 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
           if (encoding === 'gzip') body = gunzipSync(body);
           else if (encoding === 'deflate') body = inflateSync(body);
           else if (encoding === 'br') body = brotliDecompressSync(body);
+          if (isFontManifest) {
+            const manifest = withOfflineRoboto(response.statusCode === 404 ? '[]' : body.toString('utf8'),
+              proxyOrigin + OFFLINE_ROBOTO_PATH);
+            delete responseHeaders['content-length'];
+            delete responseHeaders['content-encoding'];
+            delete responseHeaders['etag'];
+            delete responseHeaders['last-modified'];
+            responseHeaders['content-type'] = 'application/json; charset=utf-8';
+            responseHeaders['cache-control'] = 'no-store';
+            res.writeHead(200, responseHeaders);
+            res.end(manifest);
+            return;
+          }
           const selectedDevice = requestUrl.searchParams.get('_previewDevice') || device;
           const script = `<script src="${bridgePath}?device=${encodeURIComponent(selectedDevice)}"></script>`;
           const html = body.toString('utf8');

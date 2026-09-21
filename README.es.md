@@ -57,6 +57,12 @@ Usa **Retroceso** para borrar caracteres y **Listo**, **Buscar** o **Enviar** pa
 
 Los campos de solo lectura y los configurados con `TextInputType.none` no abren el teclado virtual. Algunos tipos de entrada menos comunes de Flutter pueden usar la disposición de texto porque Flutter Web no expone un modo de entrada de navegador distinto para ellos.
 
+## Textos sin conexión
+
+La extensión incluye Roboto Regular y la sirve desde el equipo cuando la app no declara su propia familia Roboto. Flutter también se inicia con `--no-web-resources-cdn` para cargar CanvasKit desde el SDK local. Así, los textos que usan la fuente predeterminada no dependen de descargar Roboto de Google. Esto funciona con el proxy REST activado o desactivado y no modifica los archivos de tu app.
+
+El SDK web y las dependencias del proyecto deben estar descargados previamente. Las fuentes personalizadas (por ejemplo, las solicitadas por `google_fonts`) y los glifos que Roboto no cubre deben incluirse como assets en tu proyecto para usarlos sin conexión. Las API remotas y las imágenes de internet siguen necesitando red.
+
 ## APIs REST en la vista previa
 
 El soporte REST está habilitado por defecto. Usa la **URL absoluta HTTP o HTTPS** habitual de tu API en Flutter, por ejemplo `http://localhost:8080/api/products` o `https://api.example.com/products`. Las solicitudes de los clientes `fetch` y `XMLHttpRequest`, incluidos los clientes web estándar usados por `http` y Dio, pasan por el proxy local de la extensión. Tu código Flutter no necesita cambios.

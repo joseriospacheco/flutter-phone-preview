@@ -57,6 +57,12 @@ Use **Backspace** to delete characters and **Done**, **Search**, or **Send** for
 
 Read-only fields and fields configured with `TextInputType.none` do not open the virtual keyboard. Some less common Flutter input types may use the text layout because Flutter Web does not expose a distinct browser input mode for them.
 
+## Text without an internet connection
+
+The extension bundles Roboto Regular and serves it locally when the app does not declare its own Roboto family. Flutter also starts with `--no-web-resources-cdn` to load CanvasKit from the local SDK. Text using the default font therefore does not depend on downloading Roboto from Google. This works with the REST proxy enabled or disabled and does not modify your Flutter files.
+
+The web SDK and project dependencies must already be downloaded. Custom fonts (for example, fonts fetched by `google_fonts`) and glyphs outside Roboto's coverage must be bundled as assets in your project for offline use. Remote APIs and internet images still need a network connection.
+
 ## REST APIs in the preview
 
 REST support is enabled by default. Use your API's usual **absolute HTTP or HTTPS URL** in Flutter, for example `http://localhost:8080/api/products` or `https://api.example.com/products`. Requests from browser `fetch` and `XMLHttpRequest` clients, including the standard web clients used by `http` and Dio, pass through the extension's local proxy. Your Flutter source does not need to change.
