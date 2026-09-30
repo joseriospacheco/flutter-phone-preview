@@ -99,6 +99,12 @@ export class PhonePreviewViewProvider implements vscode.WebviewViewProvider, vsc
     void this.view.webview.postMessage({ command: 'forceReload' });
   }
 
+  requestScreenshot(): boolean {
+    if (!this.session || !this.view?.visible || !this.ready) return false;
+    void this.view.webview.postMessage({ command: 'takeScreenshot' });
+    return true;
+  }
+
   private render(): void {
     this.ready = false;
     if (!this.view) return;

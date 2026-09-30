@@ -43,6 +43,12 @@ The preview runs the web version of your app. It does not replace testing on a p
 - **Reload:** reload the app in the preview.
 - **Trackpad pinch:** pinching over the app is neutralized on purpose — Flutter Web turns it into a `PointerPanZoom` event with trackpad kind and the framework rejects it with an assertion. Use the zoom buttons (or Ctrl + scroll outside the phone frame) instead.
 
+## Screenshots
+
+Click the camera button in the toolbar (or run **Flutter: Take Screenshot (Phone Preview)** from the Command Palette) to capture the app with the full device frame, including the notch and the status bar with the current time. Choose where to save the PNG; the default name includes the device, the orientation, and a timestamp, for example `flutter-iphone15-portrait-20260930-153005.png`.
+
+The capture reads the pixels Flutter just painted, so it reflects the app state at that moment. If the screen cannot be read (for example, the app is still loading), the extension shows a warning instead of saving a blank image.
+
 ## Virtual keyboard
 
 Click a text field inside the device frame to open the virtual keyboard automatically. The keyboard adapts to the Flutter `TextInputType` used by the field.

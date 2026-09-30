@@ -43,6 +43,12 @@ La vista previa ejecuta la versión web de tu app. No sustituye las pruebas en u
 - **Recargar:** recarga la app en la vista previa.
 - **Pellizco del trackpad:** el pellizco sobre la app se neutraliza a propósito — Flutter Web lo convierte en un evento `PointerPanZoom` con kind de trackpad y el framework lo rechaza con un assertion. Usa los botones de zoom (o Ctrl + rueda fuera del marco del teléfono).
 
+## Capturas de pantalla
+
+Pulsa el botón de cámara en la barra (o ejecuta **Flutter: Tomar captura (vista previa en teléfono)** desde la paleta de comandos) para capturar la app con el marco completo del dispositivo, incluyendo el notch y la barra de estado con la hora actual. Elige dónde guardar el PNG; el nombre por defecto incluye el dispositivo, la orientación y la fecha, por ejemplo `flutter-iphone15-portrait-20260930-153005.png`.
+
+La captura lee los píxeles que Flutter acaba de pintar, así que refleja el estado de la app en ese momento. Si la pantalla no se puede leer (por ejemplo, la app aún está cargando), la extensión muestra un aviso en vez de guardar una imagen en blanco.
+
 ## Teclado virtual
 
 Haz clic en un campo de texto dentro del marco del dispositivo para abrir el teclado virtual automáticamente. El teclado se adapta al `TextInputType` de Flutter que usa el campo.

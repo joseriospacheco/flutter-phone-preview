@@ -53,6 +53,11 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('flutterPhonePreview.stop', () => stopFlutter()),
     vscode.commands.registerCommand('flutterPhonePreview.hotReload', () => sendToFlutter('r', t(lang, 'host.hotReload'))),
     vscode.commands.registerCommand('flutterPhonePreview.hotRestart', () => sendToFlutter('R', t(lang, 'host.hotRestart'))),
+    vscode.commands.registerCommand('flutterPhonePreview.screenshot', () => {
+      if (!phoneView?.requestScreenshot()) {
+        vscode.window.showWarningMessage(t(lang, 'host.screenshotNotReady'));
+      }
+    }),
     vscode.commands.registerCommand('flutterPhonePreview.clearPreferences', () => clearSavedPrefs(context)),
     outputChannel
   );
@@ -536,6 +541,57 @@ function handlePreviewMessage(msg: any, session: PreviewSession): void {
     const detail = typeof msg.message === 'string' ? msg.message : t(lang, 'panel.errorPanel');
     outputChannel.appendLine(`[Panel] ${detail}`);
     if (typeof msg.stack === 'string' && msg.stack.trim()) outputChannel.appendLine(msg.stack);
+  } else if (msg.command === 'saveScreenshot' && msg.token === session.token) {
+    void saveScreenshot(msg, session);
+  } else if (msg.command === 'screenshotFailed' && msg.token === session.token) {
+    const reason = typeof msg.reason === 'string' && msg.reason ? ` (${msg.reason})` : '';
+    outputChannel.appendLine(t(lang, 'host.screenshotFailed') + reason);
+    vscode.window.showWarningMessage(t(lang, 'host.screenshotFailed'));
+  }
+}
+
+async function saveScreenshot(msg: any, session: PreviewSession): Promise<void> {
+  if (typeof msg.data !== 'string' || msg.data.length === 0) {
+    vscode.window.showWarningMessage(t(lang, 'host.screenshotFailed'));
+    return;
+  }
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(msg.data, 'base64');
+  } catch {
+    vscode.window.showWarningMessage(t(lang, 'host.screenshotFailed'));
+    return;
+  }
+  if (bytes.length === 0) {
+    vscode.window.showWarningMessage(t(lang, 'host.screenshotFailed'));
+    return;
+  }
+  const { buildScreenshotFilename } = await import('./screenshot');
+  const device = typeof msg.device === 'string' ? msg.device : session.device;
+  const fileName = buildScreenshotFilename(device, msg.rotated === true);
+  const folders = vscode.workspace.workspaceFolders;
+  const defaultUri = folders && folders.length > 0
+    ? vscode.Uri.joinPath(folders[0].uri, fileName)
+    : undefined;
+  const uri = await vscode.window.showSaveDialog({
+    defaultUri,
+    saveLabel: t(lang, 'host.screenshotSaveLabel'),
+    filters: { Images: ['png'] }
+  });
+  if (!uri) return;
+  try {
+    await vscode.workspace.fs.writeFile(uri, bytes);
+  } catch (err) {
+    vscode.window.showErrorMessage(t(lang, 'host.screenshotSaveFailed', { error: String(err) }));
+    return;
+  }
+  const openLabel = t(lang, 'host.screenshotOpen');
+  const choice = await vscode.window.showInformationMessage(
+    t(lang, 'host.screenshotSaved', { file: uri.fsPath }),
+    openLabel
+  );
+  if (choice === openLabel) {
+    await vscode.commands.executeCommand('vscode.open', uri);
   }
 }
 
@@ -638,6 +694,7 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
     background: var(--vscode-toolbar-hoverBackground, #303949);
   }
   .toolbar button:active { filter: brightness(0.95); }
+  .toolbar button:disabled { opacity: 0.5; cursor: default; }
   .toolbar button[aria-pressed="true"] {
     color: var(--vscode-inputOption-activeForeground, #ffffff);
     background: var(--vscode-inputOption-activeBackground, #264b69);
@@ -959,6 +1016,7 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
       </div>
       <button id="fitBtn" title="${t(lang, 'panel.fit')}" aria-label="${t(lang, 'panel.fit')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg><span class="btn-text">${t(lang, 'panel.fitShort')}</span></button>
       <button id="rotateBtn" title="${t(lang, 'panel.rotate')}" aria-label="${t(lang, 'panel.rotateScreen')}" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="6" width="8" height="12" rx="2" transform="rotate(30 12 12)"/><path d="M4 9a9 9 0 0 1 14-5l2 2m0-4v4h-4M20 15a9 9 0 0 1-14 5l-2-2m0 4v-4h4"/></svg><span class="btn-text">${t(lang, 'panel.rotateShort')}</span></button>
+      <button id="shotBtn" title="${t(lang, 'panel.screenshot')}" aria-label="${t(lang, 'panel.screenshot')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.2"/></svg><span class="btn-text">${t(lang, 'panel.screenshotShort')}</span></button>
       <button id="reloadBtn" class="primary" title="${t(lang, 'panel.reload')}" aria-label="${t(lang, 'panel.reload')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"/></svg><span class="btn-text">${t(lang, 'panel.reloadShort')}</span></button>
     </div>
   </section>
@@ -1211,8 +1269,201 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
       loadApp();
     }
 
+    let shotSeq = 0;
+    let shotBusy = false;
+    const pendingShots = new Map();
+    const shotBtn = document.getElementById('shotBtn');
+
+    function requestAppShot(timeoutMs) {
+      return new Promise((resolve, reject) => {
+        if (!preview.contentWindow) {
+          reject(new Error('no-frame'));
+          return;
+        }
+        const id = ++shotSeq;
+        const timer = setTimeout(() => {
+          pendingShots.delete(id);
+          reject(new Error('timeout'));
+        }, timeoutMs || 20000);
+        pendingShots.set(id, { resolve: resolve, reject: reject, timer: timer });
+        try {
+          preview.contentWindow.postMessage(
+            { source: 'phone-preview-shot', token: keyboardToken, id: id },
+            new URL(preview.src).origin
+          );
+        } catch (err) {
+          clearTimeout(timer);
+          pendingShots.delete(id);
+          reject(err);
+        }
+      });
+    }
+
+    function roundRectPath(ctx, x, y, w, h, r) {
+      const radius = Math.max(0, Math.min(r, w / 2, h / 2));
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(x, y, w, h, radius);
+        return;
+      }
+      ctx.moveTo(x + radius, y);
+      ctx.arcTo(x + w, y, x + w, y + h, radius);
+      ctx.arcTo(x + w, y + h, x, y + h, radius);
+      ctx.arcTo(x, y + h, x, y, radius);
+      ctx.arcTo(x, y, x + w, y, radius);
+      ctx.closePath();
+    }
+
+    // Recompone el marco del teléfono sobre el bitmap de la app para exportar
+    // el PNG con el mismo aspecto que el panel (marco, notch y hora actual).
+    async function compositePhoneShot(bitmap) {
+      const cssW = rotated ? currentDevice.height : currentDevice.width;
+      const cssH = rotated ? currentDevice.width : currentDevice.height;
+      const scale = Math.min(2, 2048 / Math.max(cssW, cssH));
+      const W = Math.round(cssW * scale);
+      const H = Math.round(cssH * scale);
+      const bezel = phoneBezel();
+      const bx = bezel.x * scale;
+      const by = bezel.y * scale;
+      const frameColor = currentDevice.frame || '#111111';
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(W + 2 * bx);
+      canvas.height = Math.round(H + 2 * by);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = frameColor;
+      roundRectPath(ctx, 0, 0, canvas.width, canvas.height, currentDevice.radius * scale);
+      ctx.fill();
+      const screenR = (currentDevice.screenRadius != null
+        ? currentDevice.screenRadius
+        : Math.max(currentDevice.radius - 16, 8)) * scale;
+      ctx.save();
+      roundRectPath(ctx, bx, by, W, H, screenR);
+      ctx.clip();
+      ctx.drawImage(bitmap, bx, by, W, H);
+      ctx.restore();
+      if (!rotated && currentDevice.notchType === 'island') {
+        const nw = (currentDevice.notchWidth || 120) * scale;
+        ctx.fillStyle = frameColor;
+        roundRectPath(ctx, (canvas.width - nw) / 2, by, nw, 22 * scale, 11 * scale);
+        ctx.fill();
+      } else if (!rotated && currentDevice.notchType === 'punch') {
+        ctx.fillStyle = frameColor;
+        ctx.beginPath();
+        ctx.arc(canvas.width / 2, by + 26 * scale, 6 * scale, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const barH = 28 * scale;
+      const cy = by + barH / 2;
+      ctx.fillStyle = '#111111';
+      ctx.font = '600 ' + (12.5 * scale) + 'px -apple-system, "Segoe UI", sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(document.getElementById('clockEl').textContent || '', bx + 20 * scale, cy);
+      const battW = 24 * scale;
+      const battH = 12 * scale;
+      const battX = bx + W - 20 * scale - battW;
+      const battY = cy - battH / 2;
+      ctx.strokeStyle = '#111111';
+      ctx.lineWidth = Math.max(1, 1.5 * scale);
+      ctx.strokeRect(battX, battY, battW, battH);
+      ctx.fillRect(battX + 2 * scale, battY + 2 * scale, (battW - 4 * scale) * 0.8, battH - 4 * scale);
+      ctx.fillRect(battX + battW + 1 * scale, cy - 2.5 * scale, 2.5 * scale, 5 * scale);
+      const barW = 3 * scale;
+      const gap = 1.5 * scale;
+      const sigH = [4, 6, 9, 12];
+      let sigX = battX - 8 * scale - (barW + gap) * 4;
+      for (let i = 0; i < 4; i++) {
+        const h = sigH[i] * scale;
+        ctx.fillRect(sigX, cy + 6 * scale - h, barW, h);
+        sigX += barW + gap;
+      }
+      const png = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      if (!png) throw new Error('encode');
+      return png;
+    }
+
+    function twoFrames() {
+      return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }
+
+    async function takeScreenshot() {
+      if (shotBusy || !navigationStarted) return;
+      shotBusy = true;
+      shotBtn.disabled = true;
+      const statusEl = document.getElementById('statusText');
+      const statusBar = document.getElementById('previewStatus');
+      const prevText = statusEl.textContent;
+      const prevState = statusBar.dataset.state;
+      setPreviewStatus(STR['panel.statusCapturing'], 'loading');
+      // The bridge keeps the engine's drawing buffer alive, so a visible app
+      // reads back straight away and no longer needs the frame to flicker.
+      // Only a surface that is still blank (engine stopped painting, panel just
+      // revealed) falls back to pulsing the height: a same-size resize event
+      // may be ignored, but a real dimension change repaints the engine.
+      const origHeight = preview.style.height;
+      async function pulseFrameHeight() {
+        if (!origHeight) return;
+        for (let pulse = 0; pulse < 3; pulse++) {
+          preview.style.height = 'calc(' + origHeight + ' - 1px)';
+          await twoFrames();
+          preview.style.height = origHeight;
+          await twoFrames();
+        }
+      }
+      const captured = shot => (shot && shot.ok === true && shot.buffer) ? shot : null;
+      try {
+        let shot = null;
+        let failure = null;
+        try {
+          shot = await requestAppShot(8000);
+        } catch (err) {
+          failure = err;
+        }
+        if (!captured(shot)) {
+          await pulseFrameHeight();
+          try {
+            shot = await requestAppShot(20000);
+          } catch (err) {
+            failure = err;
+          }
+        }
+        if (!captured(shot)) {
+          throw new Error((shot && shot.reason) || (failure && failure.message) || 'capture');
+        }
+        const bitmap = await createImageBitmap(new Blob([shot.buffer], { type: 'image/png' }));
+        try {
+          const png = await compositePhoneShot(bitmap);
+          const bytes = new Uint8Array(await png.arrayBuffer());
+          let binary = '';
+          for (let i = 0; i < bytes.length; i += 8192) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+          }
+          vscode.postMessage({
+            command: 'saveScreenshot',
+            token: keyboardToken,
+            device: currentDevice.id,
+            rotated: rotated,
+            data: btoa(binary)
+          });
+        } finally {
+          if (bitmap.close) bitmap.close();
+        }
+      } catch (err) {
+        vscode.postMessage({
+          command: 'screenshotFailed',
+          token: keyboardToken,
+          reason: (err && err.message) || 'capture'
+        });
+      } finally {
+        if (origHeight) preview.style.height = origHeight;
+        shotBusy = false;
+        shotBtn.disabled = false;
+        setPreviewStatus(prevText, prevState);
+      }
+    }
+
     document.getElementById('reloadBtn').addEventListener('click', () => loadApp());
     document.getElementById('previewErrorReload').addEventListener('click', () => loadApp());
+    shotBtn.addEventListener('click', () => takeScreenshot());
 
     preview.addEventListener('load', () => {
       if (!navigationStarted) return;
@@ -1254,6 +1505,15 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
       const msg = event.data;
       if (!msg) return;
       if (event.source === preview.contentWindow) {
+        if (msg.source === 'phone-preview-screenshot' && msg.token === ${JSON.stringify(keyboardToken)}) {
+          const pending = pendingShots.get(msg.id);
+          if (pending) {
+            pendingShots.delete(msg.id);
+            clearTimeout(pending.timer);
+            pending.resolve(msg);
+          }
+          return;
+        }
         if (msg.source === 'phone-preview-runtime-error' && msg.token === ${JSON.stringify(keyboardToken)}) {
           showPreviewError(msg.kind || 'runtime', msg.message, msg.stack);
           vscode.postMessage({command: 'previewRuntimeError', token: msg.token, kind: msg.kind || 'runtime', message: msg.message || STR['panel.errorUnknown'], stack: msg.stack || ''});
@@ -1262,6 +1522,7 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
       }
       if (msg.command === 'loadApp') loadApp(msg.url);
       else if (msg.command === 'forceReload') forceReloadFrame();
+      else if (msg.command === 'takeScreenshot') takeScreenshot();
     });
 
     // Zoom con Ctrl + rueda del mouse sobre el escenario

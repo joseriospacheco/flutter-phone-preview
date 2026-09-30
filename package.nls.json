@@ -3,6 +3,7 @@
   "cmd.stop": "Flutter: Stop Phone Preview",
   "cmd.hotReload": "Flutter: Hot Reload (Phone Preview)",
   "cmd.hotRestart": "Flutter: Hot Restart (Phone Preview)",
+  "cmd.screenshot": "Flutter: Take Screenshot (Phone Preview)",
   "cmd.clearPreferences": "Flutter: Clear Saved Preview Preferences",
   "config.title": "Flutter Phone Preview",
   "config.port": "Port used by 'flutter run -d web-server'.",

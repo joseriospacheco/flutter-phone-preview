@@ -7,6 +7,7 @@ import { getPrefsBridge, PREFS_MAX_VALUE_BYTES } from './prefsBridge';
 import { getRestBridge } from './restBridge';
 import { getTrackpadGuard } from './trackpadGuard';
 import { getRuntimeBridge } from './runtimeBridge';
+import { getScreenshotBridge } from './screenshotBridge';
 import { proxyRestRequest } from './restProxy';
 import { Lang, t } from './i18n';
 import { OFFLINE_ROBOTO_PATH, readOfflineRoboto, withOfflineRoboto } from './offlineFonts';
@@ -121,7 +122,8 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
         (enableRestProxy ? getRestBridge(restPath) : '') + '\n' +
         (persistPreferences ? getPrefsBridge(JSON.stringify(prefs), prefsPath) : '') + '\n' +
         getRuntimeBridge(token, lang) + '\n' +
-        getKeyboardBridge(token, selectedDevice)
+        getKeyboardBridge(token, selectedDevice) + '\n' +
+        getScreenshotBridge(token)
       );
       return;
     }

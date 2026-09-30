@@ -80,6 +80,12 @@ class PhonePreviewViewProvider {
         this.reloadPending = false;
         void this.view.webview.postMessage({ command: 'forceReload' });
     }
+    requestScreenshot() {
+        if (!this.session || !this.view?.visible || !this.ready)
+            return false;
+        void this.view.webview.postMessage({ command: 'takeScreenshot' });
+        return true;
+    }
     render() {
         this.ready = false;
         if (!this.view)

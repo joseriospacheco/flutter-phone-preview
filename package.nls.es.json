@@ -3,6 +3,7 @@
   "cmd.stop": "Flutter: Detener vista previa en teléfono",
   "cmd.hotReload": "Flutter: Hot reload (vista previa en teléfono)",
   "cmd.hotRestart": "Flutter: Hot restart (vista previa en teléfono)",
+  "cmd.screenshot": "Flutter: Tomar captura (vista previa en teléfono)",
   "cmd.clearPreferences": "Flutter: Borrar preferencias guardadas (vista previa en teléfono)",
   "config.title": "Flutter Phone Preview",
   "config.port": "Puerto usado por 'flutter run -d web-server'.",
