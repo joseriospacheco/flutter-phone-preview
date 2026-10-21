@@ -26,6 +26,7 @@ export interface PreviewProxyOptions {
   initialPrefs?: Record<string, string>;
   onPrefsChanged?: (prefs: Record<string, string>) => Promise<void> | void;
   lang?: Lang;
+  onLog?: (message: string) => void;
 }
 
 export const PREFS_MAX_KEYS = 2000;
@@ -181,7 +182,7 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
         res.end(t(lang, 'proxy.restUnavailable'));
         return;
       }
-      proxyRestRequest(req, res, requestUrl, proxyOrigin, lang);
+      proxyRestRequest(req, res, requestUrl, proxyOrigin, lang, options.onLog);
       return;
     }
     const headers = { ...req.headers, host: upstream.host, 'accept-encoding': 'identity' };

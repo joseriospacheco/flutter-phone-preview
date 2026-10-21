@@ -5,6 +5,7 @@
   "cmd.hotRestart": "Flutter: Hot restart (vista previa en teléfono)",
   "cmd.screenshot": "Flutter: Tomar captura (vista previa en teléfono)",
   "cmd.clearPreferences": "Flutter: Borrar preferencias guardadas (vista previa en teléfono)",
+  "cmd.showLogs": "Flutter: Mostrar logs (vista previa en teléfono)",
   "config.title": "Flutter Phone Preview",
   "config.port": "Puerto usado por 'flutter run -d web-server'.",
   "config.device": "Modelo de teléfono mostrado inicialmente. También se puede cambiar desde el propio panel con el selector desplegable.",

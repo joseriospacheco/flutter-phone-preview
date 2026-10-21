@@ -179,7 +179,7 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
                 res.end((0, i18n_1.t)(lang, 'proxy.restUnavailable'));
                 return;
             }
-            (0, restProxy_1.proxyRestRequest)(req, res, requestUrl, proxyOrigin, lang);
+            (0, restProxy_1.proxyRestRequest)(req, res, requestUrl, proxyOrigin, lang, options.onLog);
             return;
         }
         const headers = { ...req.headers, host: upstream.host, 'accept-encoding': 'identity' };

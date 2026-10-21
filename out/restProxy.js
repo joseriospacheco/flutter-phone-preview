@@ -24,10 +24,12 @@ function destination(value, base) {
 }
 // The browser only talks to its preview origin. Node performs the REST request
 // without changing browser security settings or the user's Flutter source.
-function proxyRestRequest(req, res, requestUrl, previewOrigin, lang = 'es') {
+function proxyRestRequest(req, res, requestUrl, previewOrigin, lang = 'es', onLog) {
+    const startedAt = Date.now();
     const fail = (status, message) => {
         if (res.destroyed || res.writableEnded)
             return;
+        onLog?.(`[REST] ${req.method || 'GET'} ${logUrl(requestUrl.searchParams.get('url') || '')} → ${status} (${Date.now() - startedAt} ms)`);
         if (res.headersSent) {
             res.destroy();
             return;
@@ -56,6 +58,7 @@ function proxyRestRequest(req, res, requestUrl, previewOrigin, lang = 'es') {
         fail(400, (0, i18n_1.t)(lang, 'rest.invalidUrl'));
         return;
     }
+    onLog?.(`[REST] ${req.method || 'GET'} ${logUrl(url.href)}`);
     const headers = cleanHeaders(req.headers);
     for (const name of Object.keys(headers)) {
         if (['host', 'cookie', 'cookie2', 'origin', 'referer'].includes(name) || name.startsWith('sec-') || name.startsWith('access-control-')) {
@@ -180,6 +183,7 @@ function proxyRestRequest(req, res, requestUrl, previewOrigin, lang = 'es') {
                 responseHeaders['cache-control'] = 'no-store';
                 responseHeaders['x-phone-preview-response-url'] = target.href;
                 responseHeaders['x-phone-preview-redirected'] = redirects > 0 ? 'true' : 'false';
+                onLog?.(`[REST] ${req.method || 'GET'} ${logUrl(target.href)} → ${status} (${Date.now() - startedAt} ms, ${response.headers['content-type'] || 'sin content-type'})`);
                 res.writeHead(status, responseHeaders);
                 response.on('error', () => res.destroy());
                 response.pipe(res);
@@ -202,5 +206,19 @@ function proxyRestRequest(req, res, requestUrl, previewOrigin, lang = 'es') {
             req.pipe(current);
     };
     send(url, req.method || 'GET', headers, 0);
+}
+function logUrl(value) {
+    try {
+        const url = new URL(value);
+        for (const key of url.searchParams.keys()) {
+            if (/(token|auth|key|secret|password|passwd|credential|signature)/i.test(key)) {
+                url.searchParams.set(key, '[REDACTED]');
+            }
+        }
+        return url.href;
+    }
+    catch {
+        return '[URL inválida]';
+    }
 }
 //# sourceMappingURL=restProxy.js.map

@@ -2,6 +2,8 @@
 
 > **Idioma:** [English](README.md) | Español
 
+> **Instalación:** [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=1108762718.flutter-phone-preview)
+
 Vista previa de tu app Flutter dentro de VS Code con un marco de iPhone, Android o tablet. Cambia de dispositivo, rota la pantalla, ajusta el zoom y prueba campos de texto sin salir del editor.
 
 ## Capturas de pantalla

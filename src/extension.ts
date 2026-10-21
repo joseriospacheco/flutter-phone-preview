@@ -59,6 +59,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
     vscode.commands.registerCommand('flutterPhonePreview.clearPreferences', () => clearSavedPrefs(context)),
+    vscode.commands.registerCommand('flutterPhonePreview.showLogs', () => outputChannel.show(true)),
     outputChannel
   );
 }
@@ -516,11 +517,13 @@ async function openPhoneView(context: vscode.ExtensionContext, url: string, devi
       } catch (err) {
         outputChannel.appendLine(t(lang, 'host.prefsSaveFail', { error: String(err) }));
       }
-    }
+    },
+    onLog: message => outputChannel.appendLine(message)
   });
   outputChannel.appendLine(enableRestProxy
     ? t(lang, 'host.restProxyOn')
     : t(lang, 'host.restProxyOff'));
+  outputChannel.appendLine(t(lang, 'host.logsHint'));
   if (!runningProcess || flutterProcess !== runningProcess) { proxy.dispose(); return; }
   previewProxy?.dispose();
   previewProxy = proxy;
@@ -535,7 +538,7 @@ function handlePreviewMessage(msg: any, session: PreviewSession): void {
   } else if (msg.command === 'previewRuntimeError' && msg.token === session.token) {
     const kind = typeof msg.kind === 'string' ? msg.kind : 'runtime';
     const detail = typeof msg.message === 'string' ? msg.message : t(lang, 'panel.errorUnknown');
-    outputChannel.appendLine(`[App ${kind}] ${detail}`);
+    outputChannel.appendLine(kind.startsWith('console.') ? `[App ${kind.slice(8)}] ${detail}` : `[App ${kind}] ${detail}`);
     if (typeof msg.stack === 'string' && msg.stack.trim()) outputChannel.appendLine(msg.stack);
   } else if (msg.command === 'webviewRuntimeError') {
     const detail = typeof msg.message === 'string' ? msg.message : t(lang, 'panel.errorPanel');
@@ -1515,8 +1518,13 @@ function getWebviewHtml(url: string, device: string, keyboardToken = ''): string
           return;
         }
         if (msg.source === 'phone-preview-runtime-error' && msg.token === ${JSON.stringify(keyboardToken)}) {
-          showPreviewError(msg.kind || 'runtime', msg.message, msg.stack);
-          vscode.postMessage({command: 'previewRuntimeError', token: msg.token, kind: msg.kind || 'runtime', message: msg.message || STR['panel.errorUnknown'], stack: msg.stack || ''});
+          const kind = msg.kind || 'runtime';
+          // console.log/info/warn are useful diagnostics, but are not app failures.
+          // Flutter prints normal startup messages through console.log.
+          if (!['console.log', 'console.info', 'console.warn'].includes(kind)) {
+            showPreviewError(kind, msg.message, msg.stack);
+          }
+          vscode.postMessage({command: 'previewRuntimeError', token: msg.token, kind, message: msg.message || STR['panel.errorUnknown'], stack: msg.stack || ''});
         }
         return;
       }

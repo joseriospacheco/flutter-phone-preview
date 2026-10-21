@@ -2,7 +2,7 @@
   "name": "flutter-phone-preview",
   "displayName": "Flutter Phone Preview",
   "description": "Ejecuta tu app Flutter Web dentro de VS Code con un marco de teléfono (iPhone/Android).",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "icon": "images/icon.png",
   "publisher": "1108762718",
   "repository": {
@@ -23,7 +23,8 @@
     "onCommand:flutterPhonePreview.hotReload",
     "onCommand:flutterPhonePreview.hotRestart",
     "onCommand:flutterPhonePreview.screenshot",
-    "onCommand:flutterPhonePreview.clearPreferences"
+    "onCommand:flutterPhonePreview.clearPreferences",
+    "onCommand:flutterPhonePreview.showLogs"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -60,6 +61,11 @@
       {
         "command": "flutterPhonePreview.clearPreferences",
         "title": "%cmd.clearPreferences%"
+      },
+      {
+        "command": "flutterPhonePreview.showLogs",
+        "title": "%cmd.showLogs%",
+        "icon": "$(output)"
       }
     ],
     "configuration": {
@@ -175,6 +181,11 @@
           "command": "flutterPhonePreview.stop",
           "when": "view == flutterPhonePreview.view && (flutterPhonePreview.running || flutterPhonePreview.starting)",
           "group": "navigation@2"
+      },
+      {
+        "command": "flutterPhonePreview.showLogs",
+        "when": "view == flutterPhonePreview.view",
+        "group": "navigation@3"
         }
       ]
     }

@@ -5,6 +5,7 @@
   "cmd.hotRestart": "Flutter: Hot Restart (Phone Preview)",
   "cmd.screenshot": "Flutter: Take Screenshot (Phone Preview)",
   "cmd.clearPreferences": "Flutter: Clear Saved Preview Preferences",
+  "cmd.showLogs": "Flutter: Show Logs (Phone Preview)",
   "config.title": "Flutter Phone Preview",
   "config.port": "Port used by 'flutter run -d web-server'.",
   "config.device": "Phone model shown when the preview opens. It can also be changed from the panel dropdown.",

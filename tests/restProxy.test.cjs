@@ -44,6 +44,7 @@ function request(url, { method = 'GET', headers = {}, body } = {}) {
 const json = response => JSON.parse(response.body.toString('utf8'));
 
 test('REST preview proxy integration', async t => {
+  const logs = [];
   let secondApiUrl = '';
   async function apiHandler(req, res) {
     const url = new URL(req.url, 'http://fixture');
@@ -95,7 +96,7 @@ test('REST preview proxy integration', async t => {
     socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');
     socket.on('data', data => socket.write(Buffer.concat([Buffer.from('echo:'), data])));
   });
-  const proxy = await startPreviewProxy(flutter.url, 'iphone15', { enableRestProxy: true });
+  const proxy = await startPreviewProxy(flutter.url, 'iphone15', { enableRestProxy: true, onLog: message => logs.push(message) });
   t.after(async () => { proxy.dispose(); await Promise.all([api.close(), secondApi.close(), flutter.close()]); });
   const endpoint = proxy.url + '/__phone_preview_rest_' + proxy.token;
   const restUrl = target => endpoint + '?url=' + encodeURIComponent(target);
@@ -108,6 +109,15 @@ test('REST preview proxy integration', async t => {
     assert.equal(response.status, 200);
     assert.equal(json(response).url, '/echo?name=Jos%C3%A9&filter=a%2Fb%3Fc&tag=one&tag=two');
     assert.equal(response.headers['x-api-header'], 'visible-to-app');
+  });
+  await t.test('logs REST method, redacted URL, status and duration without auth headers', async () => {
+    const response = await rest('/echo?term=hello&apiKey=private-query-secret', {
+      headers: { authorization: 'Bearer private-header-secret' }
+    });
+    assert.equal(response.status, 200);
+    assert.ok(logs.some(line => line.includes('[REST] GET') && line.includes('term=hello') && line.includes('apiKey=%5BREDACTED%5D')));
+    assert.ok(logs.some(line => /→ 200 \(\d+ ms, application\/json\)/.test(line)));
+    assert.ok(logs.every(line => !line.includes('private-query-secret') && !line.includes('private-header-secret')));
   });
   for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
     await t.test(method + ' preserves method, JSON body, and bearer token', async () => {

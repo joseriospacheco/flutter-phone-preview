@@ -24,9 +24,11 @@ function destination(value: string, base?: URL): URL {
 
 // The browser only talks to its preview origin. Node performs the REST request
 // without changing browser security settings or the user's Flutter source.
-export function proxyRestRequest(req: http.IncomingMessage, res: http.ServerResponse, requestUrl: URL, previewOrigin: string, lang: Lang = 'es'): void {
+export function proxyRestRequest(req: http.IncomingMessage, res: http.ServerResponse, requestUrl: URL, previewOrigin: string, lang: Lang = 'es', onLog?: (message: string) => void): void {
+  const startedAt = Date.now();
   const fail = (status: number, message: string) => {
     if (res.destroyed || res.writableEnded) return;
+    onLog?.(`[REST] ${req.method || 'GET'} ${logUrl(requestUrl.searchParams.get('url') || '')} → ${status} (${Date.now() - startedAt} ms)`);
     if (res.headersSent) { res.destroy(); return; }
     res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(message);
@@ -39,7 +41,6 @@ export function proxyRestRequest(req: http.IncomingMessage, res: http.ServerResp
     fail(403, t(lang, 'rest.forbidden'));
     return;
   }
-
   let url: URL;
   try {
     const value = requestUrl.searchParams.get('url');
@@ -50,6 +51,7 @@ export function proxyRestRequest(req: http.IncomingMessage, res: http.ServerResp
     fail(400, t(lang, 'rest.invalidUrl'));
     return;
   }
+  onLog?.(`[REST] ${req.method || 'GET'} ${logUrl(url.href)}`);
 
   const headers = cleanHeaders(req.headers);
   for (const name of Object.keys(headers)) {
@@ -147,6 +149,7 @@ export function proxyRestRequest(req: http.IncomingMessage, res: http.ServerResp
         responseHeaders['cache-control'] = 'no-store';
         responseHeaders['x-phone-preview-response-url'] = target.href;
         responseHeaders['x-phone-preview-redirected'] = redirects > 0 ? 'true' : 'false';
+        onLog?.(`[REST] ${req.method || 'GET'} ${logUrl(target.href)} → ${status} (${Date.now() - startedAt} ms, ${response.headers['content-type'] || 'sin content-type'})`);
         res.writeHead(status, responseHeaders);
         response.on('error', () => res.destroy());
         response.pipe(res);
@@ -165,4 +168,18 @@ export function proxyRestRequest(req: http.IncomingMessage, res: http.ServerResp
     else req.pipe(current);
   };
   send(url, req.method || 'GET', headers, 0);
+}
+
+function logUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    for (const key of url.searchParams.keys()) {
+      if (/(token|auth|key|secret|password|passwd|credential|signature)/i.test(key)) {
+        url.searchParams.set(key, '[REDACTED]');
+      }
+    }
+    return url.href;
+  } catch {
+    return '[URL inválida]';
+  }
 }

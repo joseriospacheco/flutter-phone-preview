@@ -51,6 +51,20 @@ function getRuntimeBridge(token, lang = 'es') {
         originalConsoleError(...args);
       };
     }
+    for (const level of ['log', 'info', 'warn']) {
+      const original = window.console && window.console[level];
+      if (typeof original !== 'function') continue;
+      window.console[level] = (...args) => {
+        const detail = args.map(value => {
+          if (value && value.stack) return value.stack;
+          try { return typeof value === 'string' ? value : JSON.stringify(value); } catch (_) { return String(value); }
+        }).join(' ');
+        try {
+          parent.postMessage({ source: 'phone-preview-runtime-error', token, kind: 'console.' + level, message: detail.slice(0, 4000) }, parentOrigin);
+        } catch (_) {}
+        original.apply(window.console, args);
+      };
+    }
 
   })();`;
 }
