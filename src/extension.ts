@@ -75,18 +75,23 @@ function getWorkspaceFolder(): string | undefined {
 
 function httpStatus(url: string): Promise<number | undefined> {
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (status: number | undefined) => {
+      if (settled) return;
+      settled = true;
+      resolve(status);
+    };
     const req = http.get(url, (res) => {
-      res.resume();
-      res.on('end', () => {
-        const type = String(res.headers['content-type'] || '');
-        resolve(/javascript|ecmascript/.test(type) ? res.statusCode : undefined);
-      });
-      res.on('error', () => resolve(undefined));
+      // Only the headers are needed. Draining main.dart.js here downloaded the
+      // entire compiled app before the preview downloaded it again.
+      const type = String(res.headers['content-type'] || '');
+      finish(/javascript|ecmascript/.test(type) ? res.statusCode : undefined);
+      res.destroy();
     });
-    req.on('error', () => resolve(undefined));
+    req.on('error', () => finish(undefined));
     req.setTimeout(120000, () => {
       req.destroy();
-      resolve(undefined);
+      finish(undefined);
     });
   });
 }
@@ -117,7 +122,7 @@ async function waitForAppReady(baseUrl: string, timeoutMs: number): Promise<bool
     if (!flutterProcess) {
       return false; // detenido mientras esperábamos
     }
-    await new Promise((r) => setTimeout(r, 750));
+    await new Promise((r) => setTimeout(r, 250));
   }
   return false;
 }
