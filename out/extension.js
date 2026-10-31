@@ -25,6 +25,7 @@ let saveListener;
 let pendingRebuild = false;
 let fallbackTimer;
 let screenRecording;
+let notificationRate = { token: '', times: [], warned: false };
 function setPreviewContext(running, starting) {
     void vscode.commands.executeCommand('setContext', 'flutterPhonePreview.running', running);
     void vscode.commands.executeCommand('setContext', 'flutterPhonePreview.starting', starting);
@@ -522,7 +523,10 @@ async function openPhoneView(context, url, device) {
     await phoneView?.show();
 }
 function handlePreviewMessage(msg, session, context) {
-    if (msg.command === 'setNetworkProfile' && msg.token === session.token) {
+    if (msg.command === 'showAppNotification' && msg.token === session.token) {
+        showAppNotification(msg, session);
+    }
+    else if (msg.command === 'setNetworkProfile' && msg.token === session.token) {
         const state = loadNetworkState(context);
         const profile = (0, networkProfiles_1.resolveNetworkProfile)(msg.profileId, state.custom);
         session.networkProfileId = profile.id;
@@ -601,6 +605,39 @@ function handlePreviewMessage(msg, session, context) {
         outputChannel.appendLine((0, i18n_1.t)(lang, 'host.screenshotFailed') + reason);
         vscode.window.showWarningMessage((0, i18n_1.t)(lang, 'host.screenshotFailed'));
     }
+}
+function showAppNotification(msg, session) {
+    const now = Date.now();
+    if (notificationRate.token !== session.token) {
+        notificationRate = { token: session.token, times: [], warned: false };
+    }
+    notificationRate.times = notificationRate.times.filter(time => now - time < 10000);
+    if (notificationRate.times.length >= 6) {
+        if (!notificationRate.warned) {
+            notificationRate.warned = true;
+            outputChannel.appendLine('[Notification] Too many app notifications; additional notices are temporarily suppressed.');
+        }
+        return;
+    }
+    notificationRate.times.push(now);
+    notificationRate.warned = false;
+    const title = typeof msg.title === 'string' && msg.title.trim()
+        ? msg.title.trim().slice(0, 200)
+        : (0, i18n_1.t)(lang, 'host.panelTitle');
+    const body = typeof msg.body === 'string' ? msg.body.trim().slice(0, 2000) : '';
+    const message = body ? `${title} — ${body}` : title;
+    const action = (0, i18n_1.t)(lang, 'host.notificationOpen');
+    outputChannel.appendLine(`[Notification] ${title}${body ? `: ${body}` : ''}`);
+    void vscode.window.showInformationMessage(message, action).then(async (choice) => {
+        if (choice !== action)
+            return;
+        await phoneView?.show();
+        phoneView?.sendMessage({
+            command: 'notificationClicked',
+            token: session.token,
+            id: Number.isFinite(Number(msg.id)) ? Number(msg.id) : 0
+        });
+    });
 }
 async function beginScreenRecording(msg, session) {
     if (screenRecording) {
@@ -736,141 +773,159 @@ function getWebviewHtml(url, device, keyboardToken = '', networkProfileId = 'unl
     flex-shrink: 0;
   }
   .toolbar {
-    display: flex;
-    align-items: flex-end;
-    gap: 8px;
+    display: grid;
+    grid-template-columns: minmax(140px, 1fr) auto;
+    align-items: center;
+    gap: 4px 10px;
     z-index: 10;
-    flex-wrap: wrap;
-    padding: 8px 18px;
+    min-width: 0;
+    padding: 6px 10px;
     border-bottom: 1px solid var(--line);
+    background: var(--vscode-sideBar-background, #181b22);
   }
-  .device-picker { flex: 1 1 180px; min-width: 0; }
-  .network-picker { position: relative; flex: 0 0 auto; align-self: flex-end; }
-  .network-picker .field-label {
+  .device-picker { min-width: 0; width: 100%; max-width: 240px; }
+  .field-label, .toolbar .btn-text {
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
   }
+  .network-picker { position: relative; flex: 0 0 auto; }
   .network-compact {
     position: relative; display: inline-flex; align-items: center; justify-content: center;
-    gap: 4px; min-width: 50px; height: 28px; padding: 0 8px;
-    border: 1px solid var(--vscode-dropdown-border, var(--line)); border-radius: 7px;
-    background: var(--vscode-dropdown-background, #20252f); color: var(--vscode-dropdown-foreground, #dbe2ec);
+    gap: 3px; width: 42px; height: 22px; padding: 0 4px;
+    border: 1px solid transparent; border-radius: 4px;
+    color: var(--vscode-foreground, #dbe2ec);
   }
-  .network-compact > .icon { width: 15px; height: 15px; }
+  .network-compact > .icon { width: 14px; height: 14px; }
+  .network-compact:hover { background: var(--vscode-toolbar-hoverBackground, #303949); }
+  .network-compact:not([data-profile="unlimited"]) { color: var(--vscode-textLink-foreground, #58c4f4); }
   .network-compact[data-profile="offline"] { color: var(--vscode-errorForeground, #f48771); }
-  .network-badge { min-width: 14px; font-size: 10px; font-weight: 700; text-align: center; }
+  .network-badge { min-width: 14px; font-size: 9px; font-weight: 600; text-align: center; }
   .network-compact select {
     position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0;
     padding: 0; cursor: pointer;
   }
-  .network-compact:focus-within { outline: 2px solid var(--vscode-focusBorder, #58c4f4); outline-offset: 3px; }
-  .field-label {
-    display: block;
-    margin-bottom: 4px;
-    color: var(--muted);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
-  }
+  .network-compact:focus-within { outline: 1px solid var(--vscode-focusBorder, #58c4f4); outline-offset: 1px; }
   .select-wrap { position: relative; }
   .select-wrap > .icon {
     position: absolute;
-    right: 10px;
+    right: 7px;
     top: 6px;
+    width: 14px;
+    height: 14px;
     pointer-events: none;
     color: var(--muted);
   }
-  .toolbar select {
+  .select-wrap > .device-icon { left: 8px; right: auto; }
+  .device-picker select {
     appearance: none;
     width: 100%;
-    height: 28px;
+    height: 26px;
     min-width: 0;
-    padding: 0 32px 0 11px;
-    border: 1px solid var(--vscode-dropdown-border, var(--line));
-    border-radius: 7px;
+    padding: 0 26px 0 29px;
+    border: 1px solid var(--vscode-dropdown-border, transparent);
+    border-radius: 6px;
     background: var(--vscode-dropdown-background, #20252f);
     color: var(--vscode-dropdown-foreground, #dbe2ec);
+    font-size: 11px;
     text-overflow: ellipsis;
     cursor: pointer;
   }
-  .view-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .device-picker select:hover { border-color: var(--line); }
+  .view-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 0; }
+  .control-group {
+    display: flex; align-items: center; flex: 0 0 auto;
+    height: 26px; padding: 1px;
+    border: 1px solid var(--vscode-widget-border, var(--line)); border-radius: 6px;
+    background: var(--surface);
+  }
+  .control-divider { width: 1px; height: 12px; margin: 0 2px; background: var(--line); }
   .toolbar button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    height: 28px;
-    padding: 0 10px;
-    border: 1px solid var(--line);
-    border-radius: 7px;
-    background: var(--surface);
+    flex: 0 0 auto;
+    gap: 3px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
     color: var(--vscode-foreground, #dbe2ec);
     cursor: pointer;
     white-space: nowrap;
+    transition: background-color .12s ease, color .12s ease;
   }
-  .toolbar button:hover {
+  .toolbar button > .icon { width: 14px; height: 14px; }
+  .toolbar .control-group button { width: 22px; height: 22px; }
+  .toolbar button:focus-visible, .device-picker select:focus-visible { outline-width: 1px; outline-offset: 1px; }
+  .toolbar button:hover:not(:disabled) {
     background: var(--vscode-toolbar-hoverBackground, #303949);
   }
-  .toolbar button:active { filter: brightness(0.95); }
-  .toolbar button:disabled { opacity: 0.5; cursor: default; }
+  .toolbar button:active:not(:disabled) { background: var(--vscode-toolbar-activeBackground, #3b4556); }
+  .toolbar button:disabled { opacity: 0.4; cursor: default; }
   .toolbar button[aria-pressed="true"] {
     color: var(--vscode-inputOption-activeForeground, #ffffff);
     background: var(--vscode-inputOption-activeBackground, #264b69);
     border-color: var(--vscode-inputOption-activeBorder, #58c4f4);
   }
   .toolbar button.recording {
-    color: #f85149;
-    border-color: #f85149;
+    color: var(--vscode-errorForeground, #f85149);
+    background: color-mix(in srgb, var(--vscode-errorForeground, #f85149) 12%, transparent);
   }
   .capture-menu-wrap { position: relative; }
-  .capture-menu-wrap > button .chevron { width: 11px; height: 11px; margin-left: -2px; }
+  .toolbar .capture-menu-wrap > button { width: 32px; gap: 2px; }
+  .capture-menu-wrap > button .chevron { width: 9px; height: 9px; }
+  .capture-menu-wrap .recording-icon { display: none; }
+  .capture-menu-wrap > button.recording .capture-icon { display: none; }
+  .capture-menu-wrap > button.recording .recording-icon { display: block; }
   .capture-menu {
-    position: absolute; z-index: 30; top: calc(100% + 5px); right: 0;
-    display: grid; min-width: 164px; padding: 4px;
-    border: 1px solid var(--vscode-menu-border, var(--line)); border-radius: 7px;
+    position: absolute; z-index: 30; top: calc(100% + 6px); right: -42px;
+    display: grid; min-width: 184px; max-width: calc(100vw - 16px); padding: 4px;
+    border: 1px solid var(--vscode-menu-border, var(--line)); border-radius: 8px;
     background: var(--vscode-menu-background, var(--surface));
-    box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    box-shadow: 0 8px 24px rgba(0,0,0,.22);
   }
   .capture-menu[hidden] { display: none; }
   .toolbar .capture-menu button {
-    width: 100%; justify-content: flex-start; border: 0; border-radius: 4px;
+    width: 100%; height: 30px; padding: 0 8px; gap: 8px; justify-content: flex-start; border: 0; border-radius: 4px;
+    font-size: 11px;
     background: transparent; color: var(--vscode-menu-foreground, var(--vscode-foreground));
   }
-  .toolbar .capture-menu button:hover { background: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground)); }
-  .toolbar .capture-menu button.recording { color: #f85149; }
-  .toolbar .primary {
-    background: var(--vscode-button-background, #087ca7);
-    color: var(--vscode-button-foreground, #ffffff);
-    border-color: transparent;
+  .toolbar .capture-menu button:hover:not(:disabled) {
+    background: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground, #303949));
+    color: var(--vscode-menu-selectionForeground, var(--vscode-foreground, #dbe2ec));
   }
-  .toolbar .primary:hover {
-    background: var(--vscode-button-hoverBackground, #0990bc);
+  .toolbar .capture-menu button.recording { color: var(--vscode-errorForeground, #f85149); }
+  .toolbar .primary {
+    width: 26px;
+    height: 26px;
+    color: var(--vscode-textLink-foreground, #58c4f4);
+    background: color-mix(in srgb, var(--vscode-textLink-foreground, #58c4f4) 12%, transparent);
+    border-radius: 6px;
+  }
+  .toolbar .primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--vscode-textLink-foreground, #58c4f4) 22%, transparent);
   }
   .zoom-group {
     display: flex;
     align-items: center;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 7px;
     flex-shrink: 0;
   }
   .toolbar .zoom-group button {
-    height: 24px;
-    padding: 0 4px;
-    border: 0;
-    background: transparent;
+    width: 22px;
+    height: 22px;
   }
   .toolbar .zoom-group .icon {
     width: 13px;
     height: 13px;
   }
-  .toolbar .zoom-group button:hover { background: var(--vscode-toolbar-hoverBackground, #303949); }
+  .toolbar .zoom-group #zoomResetBtn { width: 30px; }
   #zoomLabel {
     font-variant-numeric: tabular-nums;
-    font-size: 11px;
-    min-width: 28px;
-    padding: 0 2px;
+    font-size: 10px;
+    letter-spacing: -.3px;
+    color: var(--muted);
     text-align: center;
   }
   .stage {
@@ -894,50 +949,55 @@ function getWebviewHtml(url, device, keyboardToken = '', networkProfileId = 'unl
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 6px 14px;
-    padding: 10px 18px;
+    gap: 4px 10px;
+    padding: 5px 10px;
     border-top: 1px solid var(--line);
     color: var(--muted);
     font-size: 10px;
     font-variant-numeric: tabular-nums;
   }
-  .preview-status { display: inline-flex; align-items: center; gap: 6px; }
-  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .preview-status { display: inline-flex; align-items: center; gap: 5px; }
+  .status-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
   .preview-status[data-state="loading"] { color: var(--vscode-textLink-foreground, #58c4f4); }
   .preview-status[data-state="slow"] { color: var(--vscode-editorWarning-foreground, #e9b35e); }
   .preview-status[data-state="error"] { color: var(--vscode-errorForeground, #f48771); }
   .zoom-hint { margin-left: auto; }
   @media (max-width: 620px) {
-    .device-picker { flex-basis: 100%; }
-    .view-actions { width: 100%; }
-    .toolbar .primary { margin-left: auto; }
     .zoom-hint { display: none; }
   }
-  @media (max-width: 400px) {
-    .toolbar { padding: 8px 12px; gap: 6px; }
-    .btn-text { display: none; }
+  @media (max-width: 480px) {
+    .toolbar { grid-template-columns: minmax(0, 1fr); padding: 6px 8px; }
+    .device-picker { max-width: none; }
+    .view-actions { justify-content: space-between; }
     .stage { padding: 18px; }
-    .preview-footer { padding: 9px 12px; }
-    .toolbar button { padding: 0 8px; }
   }
-  @media (max-width: 300px) {
-    .toolbar { padding: 6px 8px; gap: 4px; }
-    #zoomLabel { display: none; }
-    .toolbar .zoom-group button { padding: 0 4px; }
-    .device-picker { flex-basis: 100%; }
+  @media (max-width: 260px) {
+    .toolbar { padding: 5px 6px; }
+    .view-actions { gap: 2px; }
+    .toolbar .control-group button { width: 20px; }
+    .toolbar .zoom-group #zoomResetBtn { width: 28px; }
+    .toolbar .capture-menu-wrap > button { width: 30px; }
+    .control-divider { margin: 0 1px; }
     #deviceDetails { display: none; }
   }
+  @media (max-width: 230px) {
+    .view-actions { flex-wrap: wrap; justify-content: flex-start; }
+  }
   @media (max-height: 480px) {
-    .toolbar { padding-top: 8px; padding-bottom: 8px; }
-    .field-label { display: none; }
     .stage { padding: 14px; }
   }
   body.vscode-high-contrast .stage, body.vscode-high-contrast-light .stage { background-image: none; }
   body.vscode-high-contrast button, body.vscode-high-contrast-light button {
     border-color: var(--vscode-contrastBorder, currentColor);
   }
+  body.vscode-high-contrast .control-group, body.vscode-high-contrast-light .control-group,
+  body.vscode-high-contrast .device-picker select, body.vscode-high-contrast-light .device-picker select,
+  body.vscode-high-contrast .network-compact, body.vscode-high-contrast-light .network-compact {
+    border-color: var(--vscode-contrastBorder, currentColor);
+  }
   @media (prefers-reduced-motion: reduce) {
     .spinner { animation: none !important; }
+    .toolbar button { transition: none; }
   }
   .phone {
     background: #111111;
@@ -1166,20 +1226,25 @@ function getWebviewHtml(url, device, keyboardToken = '', networkProfileId = 'unl
     <div class="device-picker">
       <label class="field-label" for="deviceSelect">${(0, i18n_1.t)(lang, 'panel.deviceLabel')}</label>
       <div class="select-wrap">
+        <svg class="icon device-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M10 6h4m-3 12h2"/></svg>
         <select id="deviceSelect" title="${(0, i18n_1.t)(lang, 'panel.deviceTitle')}"></select>
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
       </div>
     </div>
     <div class="view-actions">
+      <div class="control-group">
       <div class="zoom-group" role="group" aria-label="${(0, i18n_1.t)(lang, 'panel.zoomGroup')}">
         <button id="zoomOut" title="${(0, i18n_1.t)(lang, 'panel.zoomOut')}" aria-label="${(0, i18n_1.t)(lang, 'panel.zoomOut')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
         <button id="zoomResetBtn" title="${(0, i18n_1.t)(lang, 'panel.zoomReset')}" aria-label="${(0, i18n_1.t)(lang, 'panel.zoomReset')}"><span id="zoomLabel">100%</span></button>
         <button id="zoomIn" title="${(0, i18n_1.t)(lang, 'panel.zoomIn')}" aria-label="${(0, i18n_1.t)(lang, 'panel.zoomIn')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></button>
       </div>
+      <span class="control-divider" aria-hidden="true"></span>
       <button id="fitBtn" title="${(0, i18n_1.t)(lang, 'panel.fit')}" aria-label="${(0, i18n_1.t)(lang, 'panel.fit')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg><span class="btn-text">${(0, i18n_1.t)(lang, 'panel.fitShort')}</span></button>
       <button id="rotateBtn" title="${(0, i18n_1.t)(lang, 'panel.rotate')}" aria-label="${(0, i18n_1.t)(lang, 'panel.rotateScreen')}" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="6" width="8" height="12" rx="2" transform="rotate(30 12 12)"/><path d="M4 9a9 9 0 0 1 14-5l2 2m0-4v4h-4M20 15a9 9 0 0 1-14 5l-2-2m0 4v-4h4"/></svg><span class="btn-text">${(0, i18n_1.t)(lang, 'panel.rotateShort')}</span></button>
+      </div>
+      <div class="control-group">
       <div class="capture-menu-wrap" id="captureMenuWrap">
-        <button id="captureMenuBtn" title="${(0, i18n_1.t)(lang, 'panel.captureMenu')}" aria-label="${(0, i18n_1.t)(lang, 'panel.captureMenu')}" aria-haspopup="menu" aria-expanded="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.2"/></svg><span class="btn-text" id="captureMenuText">${(0, i18n_1.t)(lang, 'panel.screenshotShort')}</span><svg class="icon chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
+        <button id="captureMenuBtn" title="${(0, i18n_1.t)(lang, 'panel.captureMenu')}" aria-label="${(0, i18n_1.t)(lang, 'panel.captureMenu')}" aria-haspopup="menu" aria-controls="captureMenu" aria-expanded="false"><svg class="icon capture-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.2"/></svg><svg class="icon recording-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg><span class="btn-text" id="captureMenuText">${(0, i18n_1.t)(lang, 'panel.screenshotShort')}</span><svg class="icon chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
         <div class="capture-menu" id="captureMenu" role="menu" hidden>
           <button id="shotBtn" role="menuitem"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.2"/></svg><span>${(0, i18n_1.t)(lang, 'panel.screenshot')}</span></button>
           <button id="recordBtn" role="menuitem" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="currentColor" stroke="none"/></svg><span id="recordBtnText">${(0, i18n_1.t)(lang, 'panel.recordStart')}</span></button>
@@ -1192,6 +1257,7 @@ function getWebviewHtml(url, device, keyboardToken = '', networkProfileId = 'unl
           <span class="network-badge" id="networkBadge" aria-hidden="true"></span>
           <select id="networkSelect" aria-label="${(0, i18n_1.t)(lang, 'panel.networkTitle')}" title="${(0, i18n_1.t)(lang, 'panel.networkTitle')}"></select>
         </div>
+      </div>
       </div>
       <button id="reloadBtn" class="primary" title="${(0, i18n_1.t)(lang, 'panel.reload')}" aria-label="${(0, i18n_1.t)(lang, 'panel.reload')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"/></svg><span class="btn-text">${(0, i18n_1.t)(lang, 'panel.reloadShort')}</span></button>
     </div>
@@ -1572,6 +1638,7 @@ function getWebviewHtml(url, device, keyboardToken = '', networkProfileId = 'unl
       recordBtnText.textContent = label;
       captureMenuText.textContent = recording ? STR['panel.recordStopShort'] : STR['panel.screenshotShort'];
       captureMenuBtn.title = recordingPending ? STR['panel.recordPreparing'] : (recording ? STR['panel.recordStop'] : STR['panel.captureMenu']);
+      captureMenuBtn.setAttribute('aria-label', captureMenuBtn.title);
       captureMenuBtn.disabled = recordingPending || !navigationStarted;
       shotBtn.disabled = shotBusy || recording || recordingPending || !navigationStarted;
       document.getElementById('reloadBtn').disabled = recording || recordingPending;
@@ -1845,6 +1912,13 @@ function getWebviewHtml(url, device, keyboardToken = '', networkProfileId = 'unl
       const msg = event.data;
       if (!msg) return;
       if (event.source === preview.contentWindow) {
+        if (msg.source === 'phone-preview-notification' && msg.token === ${JSON.stringify(keyboardToken)}) {
+          vscode.postMessage({
+            command: 'showAppNotification', token: msg.token, id: msg.id,
+            title: msg.title, body: msg.body, tag: msg.tag, silent: msg.silent
+          });
+          return;
+        }
         if (msg.source === 'phone-preview-recording' && msg.token === ${JSON.stringify(keyboardToken)}) {
           if (msg.event === 'chunk') {
             vscode.postMessage({ command: 'screenRecordingChunk', token: msg.token, data: msg.data });
@@ -1906,6 +1980,15 @@ function getWebviewHtml(url, device, keyboardToken = '', networkProfileId = 'unl
       }
       else if (msg.command === 'customNetworkProfileRejected' && msg.token === ${JSON.stringify(keyboardToken)}) {
         document.getElementById('networkError').textContent = STR['network.invalid'];
+      }
+      else if (msg.command === 'notificationClicked' && msg.token === ${JSON.stringify(keyboardToken)}) {
+        if (!preview.contentWindow) return;
+        try {
+          preview.contentWindow.postMessage(
+            { command: 'notificationClicked', token: msg.token, id: msg.id },
+            new URL(preview.src).origin
+          );
+        } catch (_) {}
       }
     });
 

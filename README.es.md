@@ -4,7 +4,7 @@
 
 > **Instalación:** [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=1108762718.flutter-phone-preview)
 
-Vista previa de tu app Flutter dentro de VS Code con un marco de iPhone, Android o tablet. Cambia de dispositivo, rota la pantalla, ajusta el zoom y prueba campos de texto sin salir del editor.
+Vista previa de tu app Flutter dentro de VS Code con un marco de iPhone, Android o tablet. Cambia de dispositivo, rota la pantalla, simula condiciones de red, prueba campos de texto y captura o graba tu app sin salir del editor.
 
 ## Capturas de pantalla
 
@@ -13,6 +13,8 @@ Vista previa de tu app Flutter dentro de VS Code con un marco de iPhone, Android
 ![Vista previa en tema oscuro](images/preview-dark.png)
 
 ![Vista previa en tema claro](images/preview-light.png)
+
+![Controles compactos de captura y perfil de red 3G activo](images/preview-controls.png)
 
 ### Teclado virtual
 
@@ -54,6 +56,16 @@ La captura lee los píxeles que Flutter acaba de pintar, así que refleja el est
 ## Grabación de pantalla
 
 Pulsa **Grabar** en la barra de la vista previa y elige un archivo `.webm`. Pulsa **Detener** para terminar y guardarlo. La grabación captura el lienzo de la app Flutter a 30 fps; no incluye audio, el marco simulado del teléfono ni el resto de la ventana de VS Code.
+
+## Simulación de red
+
+Usa el control compacto de red junto al botón de captura para elegir **Sin limitación**, **Fast 4G**, **Slow 4G**, **3G**, **Sin conexión** o **Personalizar…**. Los perfiles personalizados permiten definir la latencia en milisegundos y las velocidades de descarga y subida en Kbit/s. Los perfiles guardados y la selección activa se restauran en sesiones futuras.
+
+La condición seleccionada se aplica a las siguientes solicitudes de API que pasan por el proxy REST local de la vista previa (habilitado por defecto). **Sin conexión** hace que esas solicitudes fallen como si no hubiera conectividad. La simulación solo afecta a la app del preview; no cambia VS Code, el navegador ni otras aplicaciones. Desactiva **Flutter Phone Preview: Habilitar proxy REST** en Configuración para desactivar el proxy y la simulación de red.
+
+## Notificaciones de la app
+
+Mientras la vista previa está abierta, las solicitudes de notificación del navegador que haga la app se conceden dentro de la vista previa y se muestran como mensajes de VS Code. Pulsa **Abrir vista previa** en un mensaje para volver a la app. Este comportamiento no cambia los permisos de notificación del navegador ni del sistema operativo.
 
 ## Teclado virtual
 
@@ -147,4 +159,8 @@ El proxy de la vista previa escucha en un puerto aleatorio en cada inicio, así 
 
 ## Sigue mejorando
 
-Flutter Phone Preview está en desarrollo activo. Con el tiempo se añadirán más dispositivos, controles de vista previa y mejoras de Flutter Web.
+Flutter Phone Preview se mantiene activamente. [Reporta un problema o solicita una mejora](https://github.com/joseriospacheco/flutter-phone-preview/issues).
+
+## Autor
+
+Conecta conmigo en [LinkedIn](https://www.linkedin.com/in/joseriospacheco/).

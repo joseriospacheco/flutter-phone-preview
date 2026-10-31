@@ -9,6 +9,7 @@ import { getTrackpadGuard } from './trackpadGuard';
 import { getRuntimeBridge } from './runtimeBridge';
 import { getScreenshotBridge } from './screenshotBridge';
 import { getScreenRecordingBridge } from './screenRecordingBridge';
+import { getNotificationBridge } from './notificationBridge';
 import { proxyRestRequest } from './restProxy';
 import { Lang, t } from './i18n';
 import { OFFLINE_ROBOTO_PATH, readOfflineRoboto, withOfflineRoboto } from './offlineFonts';
@@ -128,6 +129,7 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
         (enableRestProxy ? getRestBridge(restPath) : '') + '\n' +
         (persistPreferences ? getPrefsBridge(JSON.stringify(prefs), prefsPath) : '') + '\n' +
         getRuntimeBridge(token, lang) + '\n' +
+        getNotificationBridge(token) + '\n' +
         getScreenRecordingBridge(token) + '\n' +
         getKeyboardBridge(token, selectedDevice) + '\n' +
         getScreenshotBridge(token)

@@ -13,6 +13,7 @@ const trackpadGuard_1 = require("./trackpadGuard");
 const runtimeBridge_1 = require("./runtimeBridge");
 const screenshotBridge_1 = require("./screenshotBridge");
 const screenRecordingBridge_1 = require("./screenRecordingBridge");
+const notificationBridge_1 = require("./notificationBridge");
 const restProxy_1 = require("./restProxy");
 const i18n_1 = require("./i18n");
 const offlineFonts_1 = require("./offlineFonts");
@@ -117,6 +118,7 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
                 (enableRestProxy ? (0, restBridge_1.getRestBridge)(restPath) : '') + '\n' +
                 (persistPreferences ? (0, prefsBridge_1.getPrefsBridge)(JSON.stringify(prefs), prefsPath) : '') + '\n' +
                 (0, runtimeBridge_1.getRuntimeBridge)(token, lang) + '\n' +
+                (0, notificationBridge_1.getNotificationBridge)(token) + '\n' +
                 (0, screenRecordingBridge_1.getScreenRecordingBridge)(token) + '\n' +
                 (0, keyboardBridge_1.getKeyboardBridge)(token, selectedDevice) + '\n' +
                 (0, screenshotBridge_1.getScreenshotBridge)(token));

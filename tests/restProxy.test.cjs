@@ -299,6 +299,7 @@ test('REST preview proxy integration', async t => {
     for (const script of scriptBodies) assert.equal(script.status, 200);
     assert.ok(scriptBodies.some(script => script.body.toString('utf8').includes('__phone_preview_rest_')));
     assert.ok(scriptBodies.some(script => script.body.toString('utf8').includes('phone-preview-record-control')));
+    assert.ok(scriptBodies.some(script => script.body.toString('utf8').includes('phone-preview-notification')));
     const asset = await request(proxy.url + '/main.dart.js');
     assert.equal(asset.status, 200);
     assert.equal(asset.body.toString('utf8'), 'globalThis.flutterFixtureLoaded = true;');

@@ -4,7 +4,7 @@
 
 > **Install:** [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=1108762718.flutter-phone-preview)
 
-Preview your Flutter app inside VS Code with an iPhone, Android phone, or tablet frame. Switch devices, rotate the screen, adjust the zoom, and test text fields without leaving the editor.
+Preview your Flutter app inside VS Code with an iPhone, Android phone, or tablet frame. Switch devices, rotate the screen, simulate network conditions, test text fields, and capture or record your app without leaving the editor.
 
 ## Screenshots
 
@@ -13,6 +13,8 @@ Preview your Flutter app inside VS Code with an iPhone, Android phone, or tablet
 ![Preview in dark theme](images/preview-dark.png)
 
 ![Preview in light theme](images/preview-light.png)
+
+![Compact capture controls and the active 3G profile](images/preview-controls.png)
 
 ### Virtual keyboard
 
@@ -54,6 +56,16 @@ The capture reads the pixels Flutter just painted, so it reflects the app state 
 ## Screen recording
 
 Click **Record** in the preview toolbar and choose a `.webm` file. Click **Stop** to finish and save it. The recording captures the Flutter app canvas at 30 fps; it does not include audio, the simulated phone frame, or the rest of the VS Code window.
+
+## Network simulation
+
+Use the compact network control beside the capture button to choose **No throttling**, **Fast 4G**, **Slow 4G**, **3G**, **Offline**, or **Customize…**. Custom profiles let you set latency in milliseconds and download and upload speeds in Kbit/s. Saved profiles and the active selection are restored in future sessions.
+
+The selected condition applies to subsequent API requests routed through the preview's local REST proxy (enabled by default). **Offline** makes those requests fail as they would without connectivity. This simulation is scoped to the preview app; it does not change VS Code, the browser, or other applications. Disable **Flutter Phone Preview: Enable Rest Proxy** in Settings to turn off the proxy and its network simulation.
+
+## App notifications
+
+While the preview is running, browser notification requests from the app are granted inside the preview and shown as VS Code messages. Choose **Open preview** in a message to return to the app. This preview behavior does not change notification permissions for the browser or operating system.
 
 ## Virtual keyboard
 
@@ -153,4 +165,8 @@ them and start clean.
 
 ## Continue improving
 
-Flutter Phone Preview is under active development. More devices, preview controls, and Flutter Web improvements will be added over time.
+Flutter Phone Preview is actively maintained. [Report a problem or request an improvement](https://github.com/joseriospacheco/flutter-phone-preview/issues).
+
+## Author
+
+Connect with me on [LinkedIn](https://www.linkedin.com/in/joseriospacheco/).
