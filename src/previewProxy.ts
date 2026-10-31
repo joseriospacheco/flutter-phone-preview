@@ -8,15 +8,18 @@ import { getRestBridge } from './restBridge';
 import { getTrackpadGuard } from './trackpadGuard';
 import { getRuntimeBridge } from './runtimeBridge';
 import { getScreenshotBridge } from './screenshotBridge';
+import { getScreenRecordingBridge } from './screenRecordingBridge';
 import { proxyRestRequest } from './restProxy';
 import { Lang, t } from './i18n';
 import { OFFLINE_ROBOTO_PATH, readOfflineRoboto, withOfflineRoboto } from './offlineFonts';
+import { NetworkCondition, DEFAULT_NETWORK_PROFILE } from './networkProfiles';
 
 export interface PreviewProxy {
   url: string;
   token: string;
   dispose(): void;
   flushPrefs(): Promise<void>;
+  setNetworkCondition(condition: NetworkCondition): void;
 }
 
 // Inject only the local preview response. The user's Flutter files are untouched.
@@ -27,6 +30,7 @@ export interface PreviewProxyOptions {
   onPrefsChanged?: (prefs: Record<string, string>) => Promise<void> | void;
   lang?: Lang;
   onLog?: (message: string) => void;
+  initialNetworkCondition?: NetworkCondition;
 }
 
 export const PREFS_MAX_KEYS = 2000;
@@ -59,6 +63,7 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
   let prefsTimer: NodeJS.Timeout | undefined;
   let prefsSaveChain: Promise<void> = Promise.resolve();
   const onPrefsChanged = options.onPrefsChanged;
+  let networkCondition: NetworkCondition = options.initialNetworkCondition || DEFAULT_NETWORK_PROFILE;
   function savePrefsNow(): Promise<void> {
     if (!prefsDirty || !onPrefsChanged) {
       prefsDirty = false;
@@ -123,6 +128,7 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
         (enableRestProxy ? getRestBridge(restPath) : '') + '\n' +
         (persistPreferences ? getPrefsBridge(JSON.stringify(prefs), prefsPath) : '') + '\n' +
         getRuntimeBridge(token, lang) + '\n' +
+        getScreenRecordingBridge(token) + '\n' +
         getKeyboardBridge(token, selectedDevice) + '\n' +
         getScreenshotBridge(token)
       );
@@ -182,7 +188,7 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
         res.end(t(lang, 'proxy.restUnavailable'));
         return;
       }
-      proxyRestRequest(req, res, requestUrl, proxyOrigin, lang, options.onLog);
+      proxyRestRequest(req, res, requestUrl, proxyOrigin, lang, options.onLog, () => networkCondition);
       return;
     }
     const headers = { ...req.headers, host: upstream.host, 'accept-encoding': 'identity' };
@@ -284,6 +290,9 @@ export async function startPreviewProxy(upstreamUrl: string, device: string, opt
   return {
     url: proxyOrigin, token,
     flushPrefs,
+    setNetworkCondition(condition: NetworkCondition) {
+      networkCondition = condition;
+    },
     dispose() {
       // En apagado el host puede no esperar: se dispara el flush y
       // deactivate() lo espera explícitamente con flushPrefs().

@@ -51,6 +51,10 @@ Click the camera button in the toolbar (or run **Flutter: Take Screenshot (Phone
 
 The capture reads the pixels Flutter just painted, so it reflects the app state at that moment. If the screen cannot be read (for example, the app is still loading), the extension shows a warning instead of saving a blank image.
 
+## Screen recording
+
+Click **Record** in the preview toolbar and choose a `.webm` file. Click **Stop** to finish and save it. The recording captures the Flutter app canvas at 30 fps; it does not include audio, the simulated phone frame, or the rest of the VS Code window.
+
 ## Virtual keyboard
 
 Click a text field inside the device frame to open the virtual keyboard automatically. The keyboard adapts to the Flutter `TextInputType` used by the field.

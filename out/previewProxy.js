@@ -12,9 +12,11 @@ const restBridge_1 = require("./restBridge");
 const trackpadGuard_1 = require("./trackpadGuard");
 const runtimeBridge_1 = require("./runtimeBridge");
 const screenshotBridge_1 = require("./screenshotBridge");
+const screenRecordingBridge_1 = require("./screenRecordingBridge");
 const restProxy_1 = require("./restProxy");
 const i18n_1 = require("./i18n");
 const offlineFonts_1 = require("./offlineFonts");
+const networkProfiles_1 = require("./networkProfiles");
 exports.PREFS_MAX_KEYS = 2000;
 const PREFS_SAVE_DEBOUNCE_MS = 500;
 const PREFS_MAX_BODY_BYTES = 256 * 1024;
@@ -45,6 +47,7 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
     let prefsTimer;
     let prefsSaveChain = Promise.resolve();
     const onPrefsChanged = options.onPrefsChanged;
+    let networkCondition = options.initialNetworkCondition || networkProfiles_1.DEFAULT_NETWORK_PROFILE;
     function savePrefsNow() {
         if (!prefsDirty || !onPrefsChanged) {
             prefsDirty = false;
@@ -114,6 +117,7 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
                 (enableRestProxy ? (0, restBridge_1.getRestBridge)(restPath) : '') + '\n' +
                 (persistPreferences ? (0, prefsBridge_1.getPrefsBridge)(JSON.stringify(prefs), prefsPath) : '') + '\n' +
                 (0, runtimeBridge_1.getRuntimeBridge)(token, lang) + '\n' +
+                (0, screenRecordingBridge_1.getScreenRecordingBridge)(token) + '\n' +
                 (0, keyboardBridge_1.getKeyboardBridge)(token, selectedDevice) + '\n' +
                 (0, screenshotBridge_1.getScreenshotBridge)(token));
             return;
@@ -179,7 +183,7 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
                 res.end((0, i18n_1.t)(lang, 'proxy.restUnavailable'));
                 return;
             }
-            (0, restProxy_1.proxyRestRequest)(req, res, requestUrl, proxyOrigin, lang, options.onLog);
+            (0, restProxy_1.proxyRestRequest)(req, res, requestUrl, proxyOrigin, lang, options.onLog, () => networkCondition);
             return;
         }
         const headers = { ...req.headers, host: upstream.host, 'accept-encoding': 'identity' };
@@ -287,6 +291,9 @@ async function startPreviewProxy(upstreamUrl, device, options = {}) {
     return {
         url: proxyOrigin, token,
         flushPrefs,
+        setNetworkCondition(condition) {
+            networkCondition = condition;
+        },
         dispose() {
             // En apagado el host puede no esperar: se dispara el flush y
             // deactivate() lo espera explícitamente con flushPrefs().

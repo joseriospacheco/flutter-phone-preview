@@ -5,11 +5,14 @@ exports.deactivate = deactivate;
 const vscode = require("vscode");
 const http = require("http");
 const net = require("net");
+const fs = require("fs");
 const sidebarPreview_1 = require("./sidebarPreview");
 const sidebarIdle_1 = require("./sidebarIdle");
 const previewProxy_1 = require("./previewProxy");
 const virtualKeyboard_1 = require("./virtualKeyboard");
+const recording_1 = require("./recording");
 const i18n_1 = require("./i18n");
+const networkProfiles_1 = require("./networkProfiles");
 const child_process_1 = require("child_process");
 let lang = 'es';
 let flutterProcess;
@@ -21,6 +24,7 @@ let outputChannel;
 let saveListener;
 let pendingRebuild = false;
 let fallbackTimer;
+let screenRecording;
 function setPreviewContext(running, starting) {
     void vscode.commands.executeCommand('setContext', 'flutterPhonePreview.running', running);
     void vscode.commands.executeCommand('setContext', 'flutterPhonePreview.starting', starting);
@@ -30,13 +34,13 @@ function activate(context) {
     lang = (0, i18n_1.resolveLang)(vscode.env.language, vscode.workspace.getConfiguration('flutterPhonePreview').get('language', 'auto'));
     setPreviewContext(false, false);
     phoneView = new sidebarPreview_1.PhonePreviewViewProvider({
-        renderPreview: session => getWebviewHtml(session.url, session.device, session.token),
+        renderPreview: session => getWebviewHtml(session.url, session.device, session.token, session.networkProfileId, session.customNetworkProfiles),
         renderIdle: starting => (0, sidebarIdle_1.getSidebarIdleHtml)(lang, starting),
         onStart: () => {
             void vscode.commands.executeCommand('flutterPhonePreview.start');
         },
         showView: () => vscode.commands.executeCommand(sidebarPreview_1.PhonePreviewViewProvider.viewId + '.focus'),
-        onMessage: handlePreviewMessage
+        onMessage: (message, session) => handlePreviewMessage(message, session, context)
     });
     context.subscriptions.push(phoneView, vscode.window.registerWebviewViewProvider(sidebarPreview_1.PhonePreviewViewProvider.viewId, phoneView, {
         webviewOptions: { retainContextWhenHidden: true }
@@ -398,6 +402,13 @@ function prefsKeyForFolder(folder) {
     }
     return `phonePreview.prefs.${hash.toString(16)}`;
 }
+const NETWORK_ACTIVE_KEY = 'phonePreview.network.active.v1';
+const NETWORK_CUSTOM_KEY = 'phonePreview.network.custom.v1';
+function loadNetworkState(context) {
+    const custom = (0, networkProfiles_1.sanitizeCustomProfiles)(context.globalState.get(NETWORK_CUSTOM_KEY));
+    const active = (0, networkProfiles_1.resolveNetworkProfile)(context.globalState.get(NETWORK_ACTIVE_KEY), custom);
+    return { active, custom };
+}
 function loadSavedPrefs(context) {
     const folder = getWorkspaceFolder() || 'default';
     const key = prefsKeyForFolder(folder);
@@ -420,10 +431,24 @@ function clearSavedPrefs(context) {
     void context.workspaceState.update(key, undefined).then(() => vscode.window.showInformationMessage((0, i18n_1.t)(lang, 'host.prefsCleared')), (err) => vscode.window.showErrorMessage((0, i18n_1.t)(lang, 'host.prefsClearFail', { error: String(err) })));
 }
 function clearPreviewSession() {
+    cancelScreenRecording();
     previewProxy?.dispose();
     previewProxy = undefined;
     phoneView?.clear();
     setPreviewContext(false, false);
+}
+function cancelScreenRecording() {
+    const recording = screenRecording;
+    if (!recording)
+        return;
+    screenRecording = undefined;
+    recording.stream.destroy();
+    const removePartial = () => { void fs.promises.unlink(recording.uri.fsPath).catch(() => { }); };
+    if (recording.stream.closed)
+        removePartial();
+    else
+        recording.stream.once('close', removePartial);
+    outputChannel.appendLine('[Recording] Cancelled because the preview stopped before recording finished.');
 }
 function stopFlutter() {
     startGeneration++;
@@ -456,6 +481,7 @@ async function openPhoneView(context, url, device) {
     const enableRestProxy = previewConfig.get('enableRestProxy', true);
     const persistPreferences = previewConfig.get('persistPreferences', true);
     const saved = persistPreferences ? loadSavedPrefs(context) : { key: '', prefs: {} };
+    const network = loadNetworkState(context);
     if (persistPreferences && Object.keys(saved.prefs).length > 0) {
         outputChannel.appendLine((0, i18n_1.t)(lang, 'host.prefsRestored', { count: Object.keys(saved.prefs).length }));
     }
@@ -464,6 +490,7 @@ async function openPhoneView(context, url, device) {
         persistPreferences,
         lang,
         initialPrefs: saved.prefs,
+        initialNetworkCondition: network.active,
         onPrefsChanged: async (prefs) => {
             try {
                 await context.workspaceState.update(saved.key, prefs);
@@ -484,12 +511,73 @@ async function openPhoneView(context, url, device) {
     }
     previewProxy?.dispose();
     previewProxy = proxy;
-    phoneView?.setPreview({ url: proxy.url, device, token: proxy.token });
+    phoneView?.setPreview({
+        url: proxy.url,
+        device,
+        token: proxy.token,
+        networkProfileId: network.active.id,
+        customNetworkProfiles: network.custom
+    });
     setPreviewContext(true, false);
     await phoneView?.show();
 }
-function handlePreviewMessage(msg, session) {
-    if (msg.command === 'previewTimeout') {
+function handlePreviewMessage(msg, session, context) {
+    if (msg.command === 'setNetworkProfile' && msg.token === session.token) {
+        const state = loadNetworkState(context);
+        const profile = (0, networkProfiles_1.resolveNetworkProfile)(msg.profileId, state.custom);
+        session.networkProfileId = profile.id;
+        session.customNetworkProfiles = state.custom;
+        previewProxy?.setNetworkCondition(profile);
+        void context.globalState.update(NETWORK_ACTIVE_KEY, profile.id);
+        phoneView?.sendMessage({ command: 'networkProfileApplied', token: session.token, profile });
+    }
+    else if (msg.command === 'saveCustomNetworkProfile' && msg.token === session.token) {
+        const profile = (0, networkProfiles_1.sanitizeCustomProfile)({
+            id: `custom-${Date.now().toString(36)}`,
+            latencyMs: msg.latencyMs,
+            downloadKbps: msg.downloadKbps,
+            uploadKbps: msg.uploadKbps
+        });
+        if (!profile) {
+            phoneView?.sendMessage({ command: 'customNetworkProfileRejected', token: session.token });
+            return;
+        }
+        const state = loadNetworkState(context);
+        const custom = [...state.custom, profile].slice(-20);
+        session.networkProfileId = profile.id;
+        session.customNetworkProfiles = custom;
+        previewProxy?.setNetworkCondition(profile);
+        void Promise.all([
+            context.globalState.update(NETWORK_CUSTOM_KEY, custom),
+            context.globalState.update(NETWORK_ACTIVE_KEY, profile.id)
+        ]).then(() => {
+            phoneView?.sendMessage({ command: 'customNetworkProfileSaved', token: session.token, profile, profiles: custom });
+        });
+    }
+    else if (msg.command === 'startScreenRecording' && msg.token === session.token) {
+        void beginScreenRecording(msg, session);
+    }
+    else if (msg.command === 'stopScreenRecording' && msg.token === session.token) {
+        phoneView?.sendMessage({ command: 'recordingPermission', token: session.token, allowed: true });
+    }
+    else if (msg.command === 'screenRecordingChunk' && msg.token === session.token) {
+        const current = screenRecording;
+        const bytes = (0, recording_1.toRecordingChunk)(msg.data);
+        if (current && current.token === session.token && bytes && bytes.length > 0) {
+            current.bytes += bytes.length;
+            current.stream.write(bytes);
+        }
+    }
+    else if (msg.command === 'screenRecordingStarted' && msg.token === session.token) {
+        outputChannel.appendLine(`[Recording] ${String(msg.mimeType || 'video/webm')} started.`);
+    }
+    else if (msg.command === 'screenRecordingFinished' && msg.token === session.token) {
+        void finishScreenRecording(session.token);
+    }
+    else if (msg.command === 'screenRecordingFailed' && msg.token === session.token) {
+        void failScreenRecording(session.token, String(msg.message || 'Unknown recording error'));
+    }
+    else if (msg.command === 'previewTimeout') {
         outputChannel.appendLine((0, i18n_1.t)(lang, 'host.iframeTimeout'));
     }
     else if (msg.command === 'previewRuntimeError' && msg.token === session.token) {
@@ -513,6 +601,55 @@ function handlePreviewMessage(msg, session) {
         outputChannel.appendLine((0, i18n_1.t)(lang, 'host.screenshotFailed') + reason);
         vscode.window.showWarningMessage((0, i18n_1.t)(lang, 'host.screenshotFailed'));
     }
+}
+async function beginScreenRecording(msg, session) {
+    if (screenRecording) {
+        vscode.window.showWarningMessage((0, i18n_1.t)(lang, 'host.recordAlreadyRunning'));
+        phoneView?.sendMessage({ command: 'recordingPermission', token: session.token, allowed: false });
+        return;
+    }
+    const folders = vscode.workspace.workspaceFolders;
+    const defaultUri = folders && folders.length > 0
+        ? vscode.Uri.joinPath(folders[0].uri, (0, recording_1.buildRecordingFilename)(session.device, msg.rotated === true))
+        : undefined;
+    const uri = await vscode.window.showSaveDialog({
+        defaultUri,
+        saveLabel: (0, i18n_1.t)(lang, 'host.recordSaveLabel'),
+        filters: { Video: ['webm'] }
+    });
+    if (!uri) {
+        phoneView?.sendMessage({ command: 'recordingPermission', token: session.token, allowed: false });
+        return;
+    }
+    const stream = fs.createWriteStream(uri.fsPath);
+    const recording = { token: session.token, uri, stream, bytes: 0 };
+    screenRecording = recording;
+    stream.once('error', error => { void failScreenRecording(session.token, error.message); });
+    if (!phoneView?.sendMessage({ command: 'recordingPermission', token: session.token, allowed: true })) {
+        await failScreenRecording(session.token, (0, i18n_1.t)(lang, 'host.recordFailed'));
+    }
+}
+async function finishScreenRecording(token) {
+    const recording = screenRecording;
+    if (!recording || recording.token !== token)
+        return;
+    screenRecording = undefined;
+    await new Promise(resolve => recording.stream.end(() => resolve()));
+    outputChannel.appendLine(`[Recording] Saved ${recording.bytes} bytes to ${recording.uri.fsPath}`);
+    vscode.window.showInformationMessage((0, i18n_1.t)(lang, 'host.recordSaved', { file: recording.uri.fsPath }));
+}
+async function failScreenRecording(token, reason) {
+    const recording = screenRecording;
+    if (!recording || recording.token !== token)
+        return;
+    screenRecording = undefined;
+    recording.stream.destroy();
+    try {
+        await fs.promises.unlink(recording.uri.fsPath);
+    }
+    catch { /* partial file may not exist */ }
+    outputChannel.appendLine(`[Recording] ${reason}`);
+    vscode.window.showErrorMessage((0, i18n_1.t)(lang, 'host.recordFailed'));
 }
 async function saveScreenshot(msg, session) {
     if (typeof msg.data !== 'string' || msg.data.length === 0) {
@@ -558,7 +695,7 @@ async function saveScreenshot(msg, session) {
         await vscode.commands.executeCommand('vscode.open', uri);
     }
 }
-function getWebviewHtml(url, device, keyboardToken = '') {
+function getWebviewHtml(url, device, keyboardToken = '', networkProfileId = 'unlimited', customNetworkProfiles = []) {
     return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -608,6 +745,25 @@ function getWebviewHtml(url, device, keyboardToken = '') {
     border-bottom: 1px solid var(--line);
   }
   .device-picker { flex: 1 1 180px; min-width: 0; }
+  .network-picker { position: relative; flex: 0 0 auto; align-self: flex-end; }
+  .network-picker .field-label {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+  .network-compact {
+    position: relative; display: inline-flex; align-items: center; justify-content: center;
+    gap: 4px; min-width: 50px; height: 28px; padding: 0 8px;
+    border: 1px solid var(--vscode-dropdown-border, var(--line)); border-radius: 7px;
+    background: var(--vscode-dropdown-background, #20252f); color: var(--vscode-dropdown-foreground, #dbe2ec);
+  }
+  .network-compact > .icon { width: 15px; height: 15px; }
+  .network-compact[data-profile="offline"] { color: var(--vscode-errorForeground, #f48771); }
+  .network-badge { min-width: 14px; font-size: 10px; font-weight: 700; text-align: center; }
+  .network-compact select {
+    position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0;
+    padding: 0; cursor: pointer;
+  }
+  .network-compact:focus-within { outline: 2px solid var(--vscode-focusBorder, #58c4f4); outline-offset: 3px; }
   .field-label {
     display: block;
     margin-bottom: 4px;
@@ -663,6 +819,26 @@ function getWebviewHtml(url, device, keyboardToken = '') {
     background: var(--vscode-inputOption-activeBackground, #264b69);
     border-color: var(--vscode-inputOption-activeBorder, #58c4f4);
   }
+  .toolbar button.recording {
+    color: #f85149;
+    border-color: #f85149;
+  }
+  .capture-menu-wrap { position: relative; }
+  .capture-menu-wrap > button .chevron { width: 11px; height: 11px; margin-left: -2px; }
+  .capture-menu {
+    position: absolute; z-index: 30; top: calc(100% + 5px); right: 0;
+    display: grid; min-width: 164px; padding: 4px;
+    border: 1px solid var(--vscode-menu-border, var(--line)); border-radius: 7px;
+    background: var(--vscode-menu-background, var(--surface));
+    box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  }
+  .capture-menu[hidden] { display: none; }
+  .toolbar .capture-menu button {
+    width: 100%; justify-content: flex-start; border: 0; border-radius: 4px;
+    background: transparent; color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  }
+  .toolbar .capture-menu button:hover { background: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground)); }
+  .toolbar .capture-menu button.recording { color: #f85149; }
   .toolbar .primary {
     background: var(--vscode-button-background, #087ca7);
     color: var(--vscode-button-foreground, #ffffff);
@@ -890,6 +1066,29 @@ function getWebviewHtml(url, device, keyboardToken = '') {
   @keyframes spin {
     to { transform: rotate(360deg); }
   }
+  .network-dialog {
+    width: min(380px, calc(100% - 32px));
+    padding: 0;
+    border: 1px solid var(--vscode-panel-border, #343b49);
+    border-radius: 10px;
+    background: var(--vscode-editorWidget-background, #20252f);
+    color: var(--vscode-foreground, #dbe2ec);
+    box-shadow: 0 14px 42px rgba(0,0,0,.45);
+  }
+  .network-dialog::backdrop { background: rgba(0,0,0,.55); }
+  .network-form { display: grid; gap: 14px; padding: 18px; }
+  .network-form h2 { margin: 0; font-size: 15px; }
+  .network-fields { display: grid; gap: 10px; }
+  .network-fields label { display: grid; gap: 5px; color: var(--muted); }
+  .network-fields input {
+    width: 100%; height: 30px; padding: 0 9px;
+    border: 1px solid var(--vscode-input-border, var(--line)); border-radius: 5px;
+    background: var(--vscode-input-background, #181b22); color: var(--vscode-input-foreground, #dbe2ec);
+  }
+  .network-error { min-height: 16px; margin: 0; color: var(--vscode-errorForeground, #f48771); font-size: 11px; }
+  .network-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .network-dialog-actions button { height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: inherit; cursor: pointer; }
+  .network-dialog-actions .primary { background: var(--vscode-button-background, #087ca7); color: var(--vscode-button-foreground, #fff); border-color: transparent; }
   .statusbar {
     position: absolute;
     top: 0;
@@ -979,7 +1178,21 @@ function getWebviewHtml(url, device, keyboardToken = '') {
       </div>
       <button id="fitBtn" title="${(0, i18n_1.t)(lang, 'panel.fit')}" aria-label="${(0, i18n_1.t)(lang, 'panel.fit')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg><span class="btn-text">${(0, i18n_1.t)(lang, 'panel.fitShort')}</span></button>
       <button id="rotateBtn" title="${(0, i18n_1.t)(lang, 'panel.rotate')}" aria-label="${(0, i18n_1.t)(lang, 'panel.rotateScreen')}" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="6" width="8" height="12" rx="2" transform="rotate(30 12 12)"/><path d="M4 9a9 9 0 0 1 14-5l2 2m0-4v4h-4M20 15a9 9 0 0 1-14 5l-2-2m0 4v-4h4"/></svg><span class="btn-text">${(0, i18n_1.t)(lang, 'panel.rotateShort')}</span></button>
-      <button id="shotBtn" title="${(0, i18n_1.t)(lang, 'panel.screenshot')}" aria-label="${(0, i18n_1.t)(lang, 'panel.screenshot')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.2"/></svg><span class="btn-text">${(0, i18n_1.t)(lang, 'panel.screenshotShort')}</span></button>
+      <div class="capture-menu-wrap" id="captureMenuWrap">
+        <button id="captureMenuBtn" title="${(0, i18n_1.t)(lang, 'panel.captureMenu')}" aria-label="${(0, i18n_1.t)(lang, 'panel.captureMenu')}" aria-haspopup="menu" aria-expanded="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.2"/></svg><span class="btn-text" id="captureMenuText">${(0, i18n_1.t)(lang, 'panel.screenshotShort')}</span><svg class="icon chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
+        <div class="capture-menu" id="captureMenu" role="menu" hidden>
+          <button id="shotBtn" role="menuitem"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.2"/></svg><span>${(0, i18n_1.t)(lang, 'panel.screenshot')}</span></button>
+          <button id="recordBtn" role="menuitem" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7" fill="currentColor" stroke="none"/></svg><span id="recordBtnText">${(0, i18n_1.t)(lang, 'panel.recordStart')}</span></button>
+        </div>
+      </div>
+      <div class="network-picker">
+        <label class="field-label" for="networkSelect">${(0, i18n_1.t)(lang, 'panel.networkLabel')}</label>
+        <div class="network-compact" id="networkCompact">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 20h.01"/></svg>
+          <span class="network-badge" id="networkBadge" aria-hidden="true"></span>
+          <select id="networkSelect" aria-label="${(0, i18n_1.t)(lang, 'panel.networkTitle')}" title="${(0, i18n_1.t)(lang, 'panel.networkTitle')}"></select>
+        </div>
+      </div>
       <button id="reloadBtn" class="primary" title="${(0, i18n_1.t)(lang, 'panel.reload')}" aria-label="${(0, i18n_1.t)(lang, 'panel.reload')}"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"/></svg><span class="btn-text">${(0, i18n_1.t)(lang, 'panel.reloadShort')}</span></button>
     </div>
   </section>
@@ -1016,6 +1229,21 @@ function getWebviewHtml(url, device, keyboardToken = '') {
     <span id="deviceDetails"></span>
     <span class="zoom-hint">${(0, i18n_1.t)(lang, 'panel.zoomHint')}</span>
   </footer>
+  <dialog class="network-dialog" id="networkDialog">
+    <form class="network-form" id="networkForm" method="dialog">
+      <h2>${(0, i18n_1.t)(lang, 'network.dialogTitle')}</h2>
+      <div class="network-fields">
+        <label>${(0, i18n_1.t)(lang, 'network.latency')}<input id="networkLatency" type="number" min="0" max="1000000" step="1" value="100" required></label>
+        <label>${(0, i18n_1.t)(lang, 'network.download')}<input id="networkDownload" type="number" min="1" max="1000000" step="1" value="1000" required></label>
+        <label>${(0, i18n_1.t)(lang, 'network.upload')}<input id="networkUpload" type="number" min="1" max="1000000" step="1" value="500" required></label>
+      </div>
+      <p class="network-error" id="networkError" role="alert"></p>
+      <div class="network-dialog-actions">
+        <button type="button" id="networkCancel">${(0, i18n_1.t)(lang, 'network.cancel')}</button>
+        <button type="submit" class="primary">${(0, i18n_1.t)(lang, 'network.save')}</button>
+      </div>
+    </form>
+  </dialog>
   <script>
     const vscode = acquireVsCodeApi();
     const STR = ${JSON.stringify(i18n_1.STR[lang])};
@@ -1047,9 +1275,13 @@ function getWebviewHtml(url, device, keyboardToken = '') {
       { id: 'xiaomi_redmi_note13', name: 'Xiaomi Redmi Note 13', width: 393, height: 851, radius: 30, notchType: 'punch', inset: 38, frame: '#111111' },
       { id: 'oneplus_12', name: 'OnePlus 12', width: 412, height: 915, radius: 32, notchType: 'punch', inset: 38, frame: '#151515' },
       { id: 'moto_edge', name: 'Motorola Edge 40', width: 402, height: 874, radius: 32, notchType: 'punch', inset: 38, frame: '#1b1b1b' },
-      { id: 'ipad_mini', name: 'iPad Mini (tablet)', width: 744, height: 1000, radius: 22, notchType: 'none', inset: 30, frame: '#1b1b1b' },
-      { id: 'ipad_pro', name: 'iPad Pro 11" (tablet)', width: 834, height: 1194, radius: 24, notchType: 'none', inset: 30, frame: '#1b1b1b' }
+      { id: 'ipad_mini', name: 'iPad Mini', width: 744, height: 1000, radius: 22, notchType: 'none', inset: 30, frame: '#1b1b1b' },
+      { id: 'ipad_pro', name: 'iPad Pro 11"', width: 834, height: 1194, radius: 24, notchType: 'none', inset: 30, frame: '#1b1b1b' }
     ];
+
+    const NETWORK_PRESETS = ${JSON.stringify(networkProfiles_1.NETWORK_PRESETS)};
+    let customNetworkProfiles = ${JSON.stringify(customNetworkProfiles)};
+    let activeNetworkProfileId = ${JSON.stringify(networkProfileId)};
 
     const initialDeviceId = ${JSON.stringify(device)};
     let currentDevice = DEVICES.find(d => d.id === initialDeviceId) || DEVICES[0];
@@ -1062,15 +1294,91 @@ function getWebviewHtml(url, device, keyboardToken = '') {
     const notchEl = document.getElementById('notchEl');
     const punchEl = document.getElementById('punchEl');
     const select = document.getElementById('deviceSelect');
+    const networkSelect = document.getElementById('networkSelect');
+    const networkCompact = document.getElementById('networkCompact');
+    const networkBadge = document.getElementById('networkBadge');
+    const networkDialog = document.getElementById('networkDialog');
+    const networkForm = document.getElementById('networkForm');
     const zoomLabel = document.getElementById('zoomLabel');
     const preview = document.getElementById('preview');
 
     DEVICES.forEach(d => {
       const opt = document.createElement('option');
       opt.value = d.id;
-      opt.textContent = d.name + ' (' + STR['device.' + d.id] + ')';
+      opt.textContent = d.name;
       if (d.id === currentDevice.id) opt.selected = true;
       select.appendChild(opt);
+    });
+
+    function networkProfileText(profile) {
+      if (profile.labelKey) return STR[profile.labelKey];
+      return STR['network.custom'] + ': ' + profile.latencyMs + ' ms · ↓' + profile.downloadKbps + ' · ↑' + profile.uploadKbps + ' Kbit/s';
+    }
+
+    function networkProfileBadge(profile) {
+      if (!profile) return '∞';
+      if (profile.id === 'unlimited') return '∞';
+      if (profile.id === 'fast4g') return '4G+';
+      if (profile.id === 'slow4g') return '4G';
+      if (profile.id === '3g') return '3G';
+      if (profile.id === 'offline') return '×';
+      return '•';
+    }
+
+    function updateNetworkCompact() {
+      const profile = NETWORK_PRESETS.concat(customNetworkProfiles).find(item => item.id === activeNetworkProfileId) || NETWORK_PRESETS[0];
+      const text = networkProfileText(profile);
+      networkBadge.textContent = networkProfileBadge(profile);
+      networkCompact.dataset.profile = profile.id;
+      networkSelect.title = STR['panel.networkLabel'] + ': ' + text;
+      networkSelect.setAttribute('aria-label', STR['panel.networkLabel'] + ': ' + text);
+    }
+
+    function renderNetworkProfiles() {
+      networkSelect.replaceChildren();
+      for (const profile of NETWORK_PRESETS.concat(customNetworkProfiles)) {
+        const option = document.createElement('option');
+        option.value = profile.id;
+        option.textContent = networkProfileText(profile);
+        option.selected = profile.id === activeNetworkProfileId;
+        networkSelect.appendChild(option);
+      }
+      const customize = document.createElement('option');
+      customize.value = '__customize__';
+      customize.textContent = STR['network.customize'];
+      networkSelect.appendChild(customize);
+      if (![...networkSelect.options].some(option => option.value === activeNetworkProfileId)) {
+        activeNetworkProfileId = 'unlimited';
+      }
+      networkSelect.value = activeNetworkProfileId;
+      updateNetworkCompact();
+    }
+
+    renderNetworkProfiles();
+
+    networkSelect.addEventListener('change', () => {
+      if (networkSelect.value === '__customize__') {
+        networkSelect.value = activeNetworkProfileId;
+        document.getElementById('networkError').textContent = '';
+        networkDialog.showModal();
+        return;
+      }
+      activeNetworkProfileId = networkSelect.value;
+      updateNetworkCompact();
+      vscode.postMessage({ command: 'setNetworkProfile', token: keyboardToken, profileId: activeNetworkProfileId });
+    });
+
+    document.getElementById('networkCancel').addEventListener('click', () => networkDialog.close());
+    networkForm.addEventListener('submit', event => {
+      event.preventDefault();
+      const latencyMs = Number(document.getElementById('networkLatency').value);
+      const downloadKbps = Number(document.getElementById('networkDownload').value);
+      const uploadKbps = Number(document.getElementById('networkUpload').value);
+      if (!Number.isFinite(latencyMs) || latencyMs < 0 || !Number.isFinite(downloadKbps) || downloadKbps <= 0 || !Number.isFinite(uploadKbps) || uploadKbps <= 0) {
+        document.getElementById('networkError').textContent = STR['network.invalid'];
+        return;
+      }
+      vscode.postMessage({ command: 'saveCustomNetworkProfile', token: keyboardToken, latencyMs, downloadKbps, uploadKbps });
     });
 
     function applyDevice() {
@@ -1207,10 +1515,12 @@ function getWebviewHtml(url, device, keyboardToken = '') {
     }
 
     function loadApp(url = baseUrl) {
+      if (recording || recordingPending) return;
       resetKeyboard();
       hidePreviewError();
       clearTimeout(loadTimer);
       navigationStarted = true;
+      updateRecordingButton();
       navigationId++;
       setPreviewStatus(STR['panel.statusLoading'], 'loading');
       loadingText.textContent = STR['panel.loadingApp'];
@@ -1234,8 +1544,60 @@ function getWebviewHtml(url, device, keyboardToken = '') {
 
     let shotSeq = 0;
     let shotBusy = false;
+    let recording = false;
+    let recordingPending = false;
     const pendingShots = new Map();
     const shotBtn = document.getElementById('shotBtn');
+    const recordBtn = document.getElementById('recordBtn');
+    const recordBtnText = document.getElementById('recordBtnText');
+    const captureMenuWrap = document.getElementById('captureMenuWrap');
+    const captureMenuBtn = document.getElementById('captureMenuBtn');
+    const captureMenu = document.getElementById('captureMenu');
+    const captureMenuText = document.getElementById('captureMenuText');
+
+    function setCaptureMenu(open) {
+      captureMenu.hidden = !open;
+      captureMenuBtn.setAttribute('aria-expanded', String(open));
+      if (open) (recording ? recordBtn : shotBtn).focus();
+    }
+
+    function updateRecordingButton() {
+      recordBtn.disabled = recordingPending || !navigationStarted;
+      recordBtn.setAttribute('aria-pressed', String(recording));
+      recordBtn.classList.toggle('recording', recording);
+      captureMenuBtn.classList.toggle('recording', recording);
+      const label = recording ? STR['panel.recordStop'] : STR['panel.recordStart'];
+      recordBtn.title = recordingPending ? STR['panel.recordPreparing'] : label;
+      recordBtn.setAttribute('aria-label', label);
+      recordBtnText.textContent = label;
+      captureMenuText.textContent = recording ? STR['panel.recordStopShort'] : STR['panel.screenshotShort'];
+      captureMenuBtn.title = recordingPending ? STR['panel.recordPreparing'] : (recording ? STR['panel.recordStop'] : STR['panel.captureMenu']);
+      captureMenuBtn.disabled = recordingPending || !navigationStarted;
+      shotBtn.disabled = shotBusy || recording || recordingPending || !navigationStarted;
+      document.getElementById('reloadBtn').disabled = recording || recordingPending;
+    }
+
+    function requestRecordingToggle() {
+      if (recordingPending || !navigationStarted) return;
+      recordingPending = true;
+      updateRecordingButton();
+      vscode.postMessage({
+        command: recording ? 'stopScreenRecording' : 'startScreenRecording',
+        token: keyboardToken,
+        device: currentDevice.id,
+        rotated
+      });
+    }
+
+    function sendRecordingControl(action) {
+      if (!preview.contentWindow) return;
+      try {
+        preview.contentWindow.postMessage(
+          { source: 'phone-preview-record-control', token: keyboardToken, action },
+          new URL(preview.src).origin
+        );
+      } catch (_) {}
+    }
 
     function requestAppShot(timeoutMs) {
       return new Promise((resolve, reject) => {
@@ -1351,7 +1713,8 @@ function getWebviewHtml(url, device, keyboardToken = '') {
     async function takeScreenshot() {
       if (shotBusy || !navigationStarted) return;
       shotBusy = true;
-      shotBtn.disabled = true;
+      setCaptureMenu(false);
+      updateRecordingButton();
       const statusEl = document.getElementById('statusText');
       const statusBar = document.getElementById('previewStatus');
       const prevText = statusEl.textContent;
@@ -1419,14 +1782,28 @@ function getWebviewHtml(url, device, keyboardToken = '') {
       } finally {
         if (origHeight) preview.style.height = origHeight;
         shotBusy = false;
-        shotBtn.disabled = false;
+        updateRecordingButton();
         setPreviewStatus(prevText, prevState);
       }
     }
 
     document.getElementById('reloadBtn').addEventListener('click', () => loadApp());
     document.getElementById('previewErrorReload').addEventListener('click', () => loadApp());
-    shotBtn.addEventListener('click', () => takeScreenshot());
+    captureMenuBtn.addEventListener('click', event => {
+      event.stopPropagation();
+      setCaptureMenu(captureMenu.hidden);
+    });
+    shotBtn.addEventListener('click', () => { setCaptureMenu(false); takeScreenshot(); });
+    recordBtn.addEventListener('click', () => { setCaptureMenu(false); requestRecordingToggle(); });
+    document.addEventListener('click', event => {
+      if (!captureMenuWrap.contains(event.target)) setCaptureMenu(false);
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !captureMenu.hidden) {
+        setCaptureMenu(false);
+        captureMenuBtn.focus();
+      }
+    });
 
     preview.addEventListener('load', () => {
       if (!navigationStarted) return;
@@ -1468,6 +1845,27 @@ function getWebviewHtml(url, device, keyboardToken = '') {
       const msg = event.data;
       if (!msg) return;
       if (event.source === preview.contentWindow) {
+        if (msg.source === 'phone-preview-recording' && msg.token === ${JSON.stringify(keyboardToken)}) {
+          if (msg.event === 'chunk') {
+            vscode.postMessage({ command: 'screenRecordingChunk', token: msg.token, data: msg.data });
+          } else if (msg.event === 'started') {
+            recording = true;
+            recordingPending = false;
+            updateRecordingButton();
+            vscode.postMessage({ command: 'screenRecordingStarted', token: msg.token, mimeType: msg.mimeType });
+          } else if (msg.event === 'stopped') {
+            recording = false;
+            recordingPending = false;
+            updateRecordingButton();
+            vscode.postMessage({ command: 'screenRecordingFinished', token: msg.token, chunks: msg.chunks });
+          } else if (msg.event === 'error') {
+            recording = false;
+            recordingPending = false;
+            updateRecordingButton();
+            vscode.postMessage({ command: 'screenRecordingFailed', token: msg.token, message: msg.message });
+          }
+          return;
+        }
         if (msg.source === 'phone-preview-screenshot' && msg.token === ${JSON.stringify(keyboardToken)}) {
           const pending = pendingShots.get(msg.id);
           if (pending) {
@@ -1491,6 +1889,24 @@ function getWebviewHtml(url, device, keyboardToken = '') {
       if (msg.command === 'loadApp') loadApp(msg.url);
       else if (msg.command === 'forceReload') forceReloadFrame();
       else if (msg.command === 'takeScreenshot') takeScreenshot();
+      else if (msg.command === 'recordingPermission' && msg.token === ${JSON.stringify(keyboardToken)}) {
+        if (msg.allowed) sendRecordingControl(recording ? 'stop' : 'start');
+        else { recordingPending = false; recording = false; updateRecordingButton(); }
+      }
+      else if (msg.command === 'networkProfileApplied' && msg.token === ${JSON.stringify(keyboardToken)}) {
+        activeNetworkProfileId = msg.profile.id;
+        networkSelect.value = activeNetworkProfileId;
+        updateNetworkCompact();
+      }
+      else if (msg.command === 'customNetworkProfileSaved' && msg.token === ${JSON.stringify(keyboardToken)}) {
+        customNetworkProfiles = msg.profiles;
+        activeNetworkProfileId = msg.profile.id;
+        renderNetworkProfiles();
+        networkDialog.close();
+      }
+      else if (msg.command === 'customNetworkProfileRejected' && msg.token === ${JSON.stringify(keyboardToken)}) {
+        document.getElementById('networkError').textContent = STR['network.invalid'];
+      }
     });
 
     // Zoom con Ctrl + rueda del mouse sobre el escenario
@@ -1517,6 +1933,7 @@ function getWebviewHtml(url, device, keyboardToken = '') {
 
     ${(0, virtualKeyboard_1.getVirtualKeyboardScript)(keyboardToken, lang)}
     applyDevice();
+    updateRecordingButton();
 
     // Avisa a la extensión que el JS del webview está listo y puede enviar
     // el mensaje 'loadApp' para cargar el iframe.

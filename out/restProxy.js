@@ -3,7 +3,22 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.proxyRestRequest = proxyRestRequest;
 const http = require("http");
 const https = require("https");
+const stream_1 = require("stream");
 const i18n_1 = require("./i18n");
+const networkProfiles_1 = require("./networkProfiles");
+class RateLimitTransform extends stream_1.Transform {
+    constructor(bytesPerSecond) {
+        super();
+        this.bytesPerSecond = bytesPerSecond;
+    }
+    _transform(chunk, _encoding, callback) {
+        const delay = Math.max(1, Math.ceil((chunk.length / this.bytesPerSecond) * 1000));
+        setTimeout(() => callback(null, chunk), delay);
+    }
+}
+function rateLimit(kbps) {
+    return kbps > 0 ? new RateLimitTransform(kbps * 1000 / 8) : undefined;
+}
 const hopByHopHeaders = new Set([
     'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
     'te', 'trailer', 'transfer-encoding', 'upgrade'
@@ -24,8 +39,9 @@ function destination(value, base) {
 }
 // The browser only talks to its preview origin. Node performs the REST request
 // without changing browser security settings or the user's Flutter source.
-function proxyRestRequest(req, res, requestUrl, previewOrigin, lang = 'es', onLog) {
+function proxyRestRequest(req, res, requestUrl, previewOrigin, lang = 'es', onLog, getNetworkCondition = () => networkProfiles_1.DEFAULT_NETWORK_PROFILE) {
     const startedAt = Date.now();
+    const network = getNetworkCondition();
     const fail = (status, message) => {
         if (res.destroyed || res.writableEnded)
             return;
@@ -43,6 +59,13 @@ function proxyRestRequest(req, res, requestUrl, previewOrigin, lang = 'es', onLo
         (req.headers.origin && req.headers.origin !== previewOrigin) ||
         (req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'same-origin')) {
         fail(403, (0, i18n_1.t)(lang, 'rest.forbidden'));
+        return;
+    }
+    if (network.offline) {
+        onLog?.(`[REST] ${req.method || 'GET'} ${logUrl(requestUrl.searchParams.get('url') || '')} → OFFLINE`);
+        // Closing the preview-local relay makes fetch reject and XHR emit its
+        // native network error, matching a device without connectivity.
+        req.socket.destroy();
         return;
     }
     let url;
@@ -186,7 +209,14 @@ function proxyRestRequest(req, res, requestUrl, previewOrigin, lang = 'es', onLo
                 onLog?.(`[REST] ${req.method || 'GET'} ${logUrl(target.href)} → ${status} (${Date.now() - startedAt} ms, ${response.headers['content-type'] || 'sin content-type'})`);
                 res.writeHead(status, responseHeaders);
                 response.on('error', () => res.destroy());
-                response.pipe(res);
+                const limiter = rateLimit(network.downloadKbps);
+                if (limiter) {
+                    limiter.on('error', () => res.destroy());
+                    response.pipe(limiter).pipe(res);
+                }
+                else {
+                    response.pipe(res);
+                }
             });
         }
         catch {
@@ -200,12 +230,30 @@ function proxyRestRequest(req, res, requestUrl, previewOrigin, lang = 'es', onLo
             if (activeRequest === current)
                 fail(502, (0, i18n_1.t)(lang, 'rest.connectFail'));
         });
-        if (body !== undefined)
-            current.end(body);
-        else
-            req.pipe(current);
+        if (body !== undefined) {
+            const limiter = rateLimit(network.uploadKbps);
+            if (limiter) {
+                limiter.on('error', () => current.destroy());
+                limiter.end(body);
+                limiter.pipe(current);
+            }
+            else
+                current.end(body);
+        }
+        else {
+            const limiter = rateLimit(network.uploadKbps);
+            if (limiter) {
+                limiter.on('error', () => current.destroy());
+                req.pipe(limiter).pipe(current);
+            }
+            else
+                req.pipe(current);
+        }
     };
-    send(url, req.method || 'GET', headers, 0);
+    if (network.latencyMs > 0)
+        setTimeout(() => send(url, req.method || 'GET', headers, 0), network.latencyMs);
+    else
+        send(url, req.method || 'GET', headers, 0);
 }
 function logUrl(value) {
     try {

@@ -4,6 +4,8 @@ export interface PreviewSession {
   url: string;
   device: string;
   token: string;
+  networkProfileId: string;
+  customNetworkProfiles: import('./networkProfiles').NetworkProfile[];
 }
 
 interface SidebarCallbacks {
@@ -102,6 +104,12 @@ export class PhonePreviewViewProvider implements vscode.WebviewViewProvider, vsc
   requestScreenshot(): boolean {
     if (!this.session || !this.view?.visible || !this.ready) return false;
     void this.view.webview.postMessage({ command: 'takeScreenshot' });
+    return true;
+  }
+
+  sendMessage(message: unknown): boolean {
+    if (!this.session || !this.view || !this.ready) return false;
+    void this.view.webview.postMessage(message);
     return true;
   }
 

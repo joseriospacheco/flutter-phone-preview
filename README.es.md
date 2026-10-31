@@ -51,6 +51,10 @@ Pulsa el botón de cámara en la barra (o ejecuta **Flutter: Tomar captura (vist
 
 La captura lee los píxeles que Flutter acaba de pintar, así que refleja el estado de la app en ese momento. Si la pantalla no se puede leer (por ejemplo, la app aún está cargando), la extensión muestra un aviso en vez de guardar una imagen en blanco.
 
+## Grabación de pantalla
+
+Pulsa **Grabar** en la barra de la vista previa y elige un archivo `.webm`. Pulsa **Detener** para terminar y guardarlo. La grabación captura el lienzo de la app Flutter a 30 fps; no incluye audio, el marco simulado del teléfono ni el resto de la ventana de VS Code.
+
 ## Teclado virtual
 
 Haz clic en un campo de texto dentro del marco del dispositivo para abrir el teclado virtual automáticamente. El teclado se adapta al `TextInputType` de Flutter que usa el campo.

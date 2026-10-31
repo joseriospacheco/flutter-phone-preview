@@ -86,6 +86,12 @@ class PhonePreviewViewProvider {
         void this.view.webview.postMessage({ command: 'takeScreenshot' });
         return true;
     }
+    sendMessage(message) {
+        if (!this.session || !this.view || !this.ready)
+            return false;
+        void this.view.webview.postMessage(message);
+        return true;
+    }
     render() {
         this.ready = false;
         if (!this.view)

@@ -64,6 +64,11 @@ test('REST preview proxy integration', async t => {
       res.end(binaryPayload);
       return;
     }
+    if (url.pathname === '/network-payload') {
+      res.writeHead(200, { 'content-type': 'application/octet-stream' });
+      res.end(Buffer.alloc(4096, 7));
+      return;
+    }
     if (url.pathname === '/empty') { res.writeHead(204); res.end(); return; }
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -102,6 +107,25 @@ test('REST preview proxy integration', async t => {
   const restUrl = target => endpoint + '?url=' + encodeURIComponent(target);
   const rest = (path, options = {}) => request(restUrl(api.url + path), {
     ...options, headers: { origin: proxy.url, ...options.headers }
+  });
+
+  await t.test('network profile can add latency, limit transfer speed and switch offline at runtime', async () => {
+    proxy.setNetworkCondition({ latencyMs: 90, downloadKbps: 0, uploadKbps: 0 });
+    let started = Date.now();
+    assert.equal((await rest('/empty')).status, 204);
+    assert.ok(Date.now() - started >= 75, 'configured latency was not applied');
+
+    proxy.setNetworkCondition({ latencyMs: 0, downloadKbps: 256, uploadKbps: 256 });
+    started = Date.now();
+    assert.equal((await rest('/network-payload')).body.length, 4096);
+    assert.ok(Date.now() - started >= 90, 'download limit was not applied');
+    started = Date.now();
+    assert.equal((await rest('/echo', { method: 'POST', body: Buffer.alloc(4096, 1) })).status, 200);
+    assert.ok(Date.now() - started >= 90, 'upload limit was not applied');
+
+    proxy.setNetworkCondition({ latencyMs: 0, downloadKbps: 0, uploadKbps: 0, offline: true });
+    await assert.rejects(rest('/empty'));
+    proxy.setNetworkCondition({ latencyMs: 0, downloadKbps: 0, uploadKbps: 0 });
   });
 
   await t.test('GET forwards query strings to an API with no CORS headers', async () => {
@@ -274,6 +298,7 @@ test('REST preview proxy integration', async t => {
     const scriptBodies = await Promise.all(bridges.map(src => request(new URL(src, proxy.url))));
     for (const script of scriptBodies) assert.equal(script.status, 200);
     assert.ok(scriptBodies.some(script => script.body.toString('utf8').includes('__phone_preview_rest_')));
+    assert.ok(scriptBodies.some(script => script.body.toString('utf8').includes('phone-preview-record-control')));
     const asset = await request(proxy.url + '/main.dart.js');
     assert.equal(asset.status, 200);
     assert.equal(asset.body.toString('utf8'), 'globalThis.flutterFixtureLoaded = true;');
